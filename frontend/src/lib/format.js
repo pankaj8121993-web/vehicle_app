@@ -52,6 +52,6 @@ export const STATUS_STYLES = {
 export const ROLE_LABELS = {
   driver: "Driver",
   data_entry: "Data Entry Operator",
-  fleet_manager: "Fleet Manager",
   management: "Management",
+  admin: "Admin",
 };

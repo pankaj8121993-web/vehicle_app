@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 
 class VehicleCreate(BaseModel):
@@ -17,6 +17,7 @@ class VehicleCreate(BaseModel):
     fastag_number: Optional[str] = None
     fastag_bank: Optional[str] = None
     fastag_balance: Optional[float] = 0
+    photo_file_ids: Optional[List[str]] = []
     notes: Optional[str] = None
 
 

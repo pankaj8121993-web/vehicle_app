@@ -11,8 +11,10 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
+import { useAuth } from "@/context/AuthContext";
+import { canCreate, canEdit, canDelete } from "@/lib/permissions";
 import { StatusBadge, ExpiryBadge } from "@/components/StatusBadge";
 import { FileField, FileLink } from "@/components/FileWidgets";
 
@@ -81,21 +83,32 @@ export const CrudModule = ({
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [options, setOptions] = useState({ vehicle: [], driver: [], tyre: [] });
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZE = 25;
 
+  const { user } = useAuth();
+  const role = user?.role;
   const prefix = testIdPrefix || endpoint;
   const fixedJson = JSON.stringify(fixedFilters);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/${endpoint}`, { params: JSON.parse(fixedJson) });
-      setItems(res.data);
+      const res = await api.get(`/${endpoint}`, { params: { ...JSON.parse(fixedJson), page, page_size: PAGE_SIZE } });
+      if (Array.isArray(res.data)) {
+        setItems(res.data);
+        setTotal(res.data.length);
+      } else {
+        setItems(res.data.items);
+        setTotal(res.data.total);
+      }
     } catch (err) {
       toast.error(`Failed to load ${title}`);
     } finally {
       setLoading(false);
     }
-  }, [endpoint, fixedJson, title]);
+  }, [endpoint, fixedJson, title, page]);
 
   useEffect(() => { refresh(); }, [refresh, refreshKey]);
 
@@ -109,15 +122,15 @@ export const CrudModule = ({
       const next = {};
       try {
         if (neededOptionTypes.includes("vehicle")) {
-          const r = await api.get("/vehicles");
+          const r = await api.get("/vehicles", { params: { all: "true" } });
           next.vehicle = r.data.map((v) => ({ value: v.id, label: v.vehicle_number }));
         }
         if (neededOptionTypes.includes("driver")) {
-          const r = await api.get("/drivers");
+          const r = await api.get("/drivers", { params: { all: "true" } });
           next.driver = r.data.map((d) => ({ value: d.id, label: d.name }));
         }
         if (neededOptionTypes.includes("tyre")) {
-          const r = await api.get("/tyres", { params: JSON.parse(fixedJson) });
+          const r = await api.get("/tyres", { params: { ...JSON.parse(fixedJson), all: "true" } });
           next.tyre = r.data.map((t) => ({ value: t.id, label: `${t.tyre_number} (${t.vehicle_number || ""})` }));
         }
         setOptions((prev) => ({ ...prev, ...next }));
@@ -205,9 +218,11 @@ export const CrudModule = ({
             className="w-64 rounded-none pl-9"
           />
         </div>
-        <Button data-testid={`${prefix}-add-btn`} onClick={openAdd} className="rounded-none bg-slate-900 text-white hover:bg-slate-800">
-          <Plus className="mr-1 h-4 w-4" /> {addLabel || `Add ${title}`}
-        </Button>
+        {canCreate(role, endpoint) && (
+          <Button data-testid={`${prefix}-add-btn`} onClick={openAdd} className="rounded-none bg-slate-900 text-white hover:bg-slate-800">
+            <Plus className="mr-1 h-4 w-4" /> {addLabel || `Add ${title}`}
+          </Button>
+        )}
       </div>
 
       <div className="overflow-x-auto border border-slate-200 bg-white">
@@ -243,12 +258,16 @@ export const CrudModule = ({
                   <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       {rowActions && rowActions(row, refresh)}
-                      <Button data-testid={`${prefix}-edit-${row.id}`} variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(row)}>
-                        <Pencil className="h-3.5 w-3.5 text-slate-500" />
-                      </Button>
-                      <Button data-testid={`${prefix}-delete-${row.id}`} variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setDeleteTarget(row)}>
-                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                      </Button>
+                      {canEdit(role) && (
+                        <Button data-testid={`${prefix}-edit-${row.id}`} variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(row)}>
+                          <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                        </Button>
+                      )}
+                      {canDelete(role) && (
+                        <Button data-testid={`${prefix}-delete-${row.id}`} variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setDeleteTarget(row)}>
+                          <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -257,6 +276,22 @@ export const CrudModule = ({
           </tbody>
         </table>
       </div>
+
+      {total > PAGE_SIZE && (
+        <div className="flex items-center justify-between border border-t-0 border-slate-200 bg-white px-3 py-2">
+          <span className="text-xs text-slate-500" data-testid={`${prefix}-pagination-info`}>
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+          </span>
+          <div className="flex gap-1">
+            <Button data-testid={`${prefix}-prev-page`} variant="outline" size="sm" className="h-7 rounded-none px-2" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button data-testid={`${prefix}-next-page`} variant="outline" size="sm" className="h-7 rounded-none px-2" disabled={page * PAGE_SIZE >= total} onClick={() => setPage((p) => p + 1)}>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">

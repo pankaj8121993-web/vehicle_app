@@ -21,7 +21,7 @@ async def enrich(items):
     return items
 
 
-def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: str = "date", on_create=None):
+def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: str = "date", on_create=None, driver_can_create: bool = False):
     @router.get(f"/{path}")
     async def list_items(request: Request, user=Depends(require_user)):
         p = dict(request.query_params)
@@ -34,11 +34,19 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         if p.get("end_date"):
             q.setdefault(date_field, {})
             q[date_field]["$lte"] = p["end_date"]
-        items = await db[coll].find(q, {"_id": 0}).sort(date_field, -1).to_list(3000)
-        return await enrich(items)
+        if p.get("all") == "true":
+            items = await db[coll].find(q, {"_id": 0}).sort(date_field, -1).to_list(3000)
+            return await enrich(items)
+        page = max(int(p.get("page", 1)), 1)
+        page_size = min(max(int(p.get("page_size", 25)), 1), 200)
+        total = await db[coll].count_documents(q)
+        items = await db[coll].find(q, {"_id": 0}).sort(date_field, -1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+        return {"items": await enrich(items), "total": total, "page": page, "page_size": page_size}
 
     @router.post(f"/{path}")
     async def create_item(payload: CreateModel, user=Depends(require_user)):
+        if user["role"] == "driver" and not driver_can_create:
+            raise HTTPException(status_code=403, detail="Drivers can only add trips, fuel entries and breakdown reports")
         doc = payload.model_dump()
         doc["id"] = str(uuid.uuid4())
         doc["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -50,7 +58,7 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         return doc
 
     @router.put(f"/{path}/{{item_id}}")
-    async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_user)):
+    async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin"))):
         payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by")}
         res = await db[coll].update_one({"id": item_id}, {"$set": payload})
         if res.matched_count == 0:
@@ -58,7 +66,7 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         return await db[coll].find_one({"id": item_id}, {"_id": 0})
 
     @router.delete(f"/{path}/{{item_id}}")
-    async def delete_item(item_id: str, user=Depends(require_role("data_entry", "fleet_manager", "management"))):
+    async def delete_item(item_id: str, user=Depends(require_role("admin"))):
         await db[coll].delete_one({"id": item_id})
         return {"ok": True}
 

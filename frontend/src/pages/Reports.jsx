@@ -20,8 +20,8 @@ export default function Reports() {
 
   useEffect(() => {
     api.get("/reports").then((r) => setReports(r.data)).catch(() => {});
-    api.get("/vehicles").then((r) => setVehicles(r.data)).catch(() => {});
-    api.get("/drivers").then((r) => setDrivers(r.data)).catch(() => {});
+    api.get("/vehicles", { params: { all: "true" } }).then((r) => setVehicles(r.data)).catch(() => {});
+    api.get("/drivers", { params: { all: "true" } }).then((r) => setDrivers(r.data)).catch(() => {});
   }, []);
 
   const params = useCallback(() => {

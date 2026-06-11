@@ -26,7 +26,7 @@ async def on_trip_create(doc):
         doc["status"] = "ongoing"
     return doc
 
-make_crud(router, "trips", "trips", TripCreate, on_create=on_trip_create)
+make_crud(router, "trips", "trips", TripCreate, on_create=on_trip_create, driver_can_create=True)
 
 
 @router.patch("/trips/{trip_id}/close")
@@ -58,7 +58,7 @@ async def on_fuel_create(doc):
     await _update_vehicle_odometer(doc["vehicle_id"], doc["odometer"])
     return doc
 
-make_crud(router, "fuel", "fuel_entries", FuelCreate, on_create=on_fuel_create)
+make_crud(router, "fuel", "fuel_entries", FuelCreate, on_create=on_fuel_create, driver_can_create=True)
 
 
 # ---------- Services (Maintenance) ----------
@@ -77,7 +77,7 @@ async def on_repair_create(doc):
     doc["status"] = "completed" if doc["repair_type"] == "minor" else "reported"
     return doc
 
-make_crud(router, "repairs", "repairs", RepairCreate, on_create=on_repair_create)
+make_crud(router, "repairs", "repairs", RepairCreate, on_create=on_repair_create, driver_can_create=True)
 
 
 @router.patch("/repairs/{repair_id}/status")
@@ -91,8 +91,8 @@ async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends
     current_idx = REPAIR_FLOW.index(repair.get("status", "reported"))
     if REPAIR_FLOW.index(new_status) != current_idx + 1:
         raise HTTPException(status_code=400, detail=f"Invalid transition: {repair.get('status')} → {new_status}")
-    if new_status == "approved" and user.get("role") not in ("fleet_manager", "management"):
-        raise HTTPException(status_code=403, detail="Only Fleet Manager or Management can approve repairs")
+    if new_status == "approved" and user.get("role") not in ("management", "admin"):
+        raise HTTPException(status_code=403, detail="Only Management or Admin can approve repairs")
     updates = {"status": new_status}
     if new_status == "approved":
         updates["approved_by"] = user["name"]

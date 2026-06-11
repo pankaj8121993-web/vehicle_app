@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ROLE_LABELS } from "@/lib/format";
 import {
   LayoutDashboard, Truck, Users, FileText, Route, Fuel, Wrench, Hammer,
-  CircleDot, AlertTriangle, Radio, Clock, IndianRupee, BarChart3, UserCog, LogOut, Menu,
+  CircleDot, AlertTriangle, Radio, Clock, IndianRupee, BarChart3, LogOut, Menu,
 } from "lucide-react";
 
 const NAV = [
@@ -35,8 +35,6 @@ const NAV = [
 ];
 
 const SidebarContent = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const showUsers = ["management", "fleet_manager"].includes(user?.role);
   return (
     <div className="flex h-full flex-col bg-slate-900 text-slate-300">
       <div className="border-b border-slate-800 px-5 py-5">
@@ -66,20 +64,6 @@ const SidebarContent = ({ onNavigate }) => {
             ))}
           </div>
         ))}
-        {showUsers && (
-          <div className="mb-5">
-            <p className="mb-1.5 px-2 text-[10px] font-bold tracking-[0.18em] text-slate-600">ADMIN</p>
-            <NavLink to="/users" onClick={onNavigate} data-testid="nav-users"
-              className={({ isActive }) =>
-                `mb-0.5 flex items-center gap-2.5 px-2 py-2 text-sm font-medium transition-colors ${
-                  isActive ? "bg-white text-slate-900" : "hover:bg-slate-800 hover:text-white"
-                }`
-              }>
-              <UserCog className="h-4 w-4" strokeWidth={2} />
-              Users & Roles
-            </NavLink>
-          </div>
-        )}
       </nav>
     </div>
   );
@@ -90,8 +74,8 @@ export const Layout = ({ children }) => {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const handleLogout = async () => {
-    await logout();
+  const handleLogout = () => {
+    logout();
     navigate("/login");
   };
 
@@ -118,12 +102,11 @@ export const Layout = ({ children }) => {
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden text-right sm:block">
-              <p className="text-sm font-semibold text-slate-900" data-testid="user-name">{user?.name}</p>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500" data-testid="user-role">{ROLE_LABELS[user?.role] || user?.role}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Active Profile</p>
+              <p className="text-sm font-semibold text-slate-900" data-testid="user-role">{ROLE_LABELS[user?.role] || user?.role}</p>
             </div>
-            {user?.picture && <img src={user.picture} alt="" className="h-8 w-8 border border-slate-200" referrerPolicy="no-referrer" />}
-            <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="logout-btn" className="text-slate-500 hover:text-slate-900">
-              <LogOut className="h-4 w-4" />
+            <Button variant="outline" size="sm" onClick={handleLogout} data-testid="switch-role-btn" className="rounded-none border-slate-300 text-slate-600 hover:text-slate-900">
+              <LogOut className="mr-1.5 h-3.5 w-3.5" /> Switch Role
             </Button>
           </div>
         </header>

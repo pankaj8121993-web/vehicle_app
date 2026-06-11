@@ -161,6 +161,33 @@ async def dashboard(user=Depends(require_user)):
     }
 
 
+@router.get("/dashboard/trends")
+async def dashboard_trends(user=Depends(require_user)):
+    """Last 6 months: operating cost, KM run and fuel cost per month."""
+    now = datetime.now(timezone.utc)
+    months = []
+    y, m = now.year, now.month
+    for i in range(5, -1, -1):
+        mm, yy = m - i, y
+        while mm <= 0:
+            mm += 12
+            yy -= 1
+        months.append(f"{yy:04d}-{mm:02d}")
+    start = months[0] + "-01"
+    expenses = await gather_expenses(start_date=start)
+    trips = await db.trips.find({"date": {"$gte": start}}, {"_id": 0}).to_list(10000)
+    fuel = await db.fuel_entries.find({"date": {"$gte": start}}, {"_id": 0}).to_list(10000)
+    data = []
+    for mo in months:
+        data.append({
+            "month": mo,
+            "expense": round(sum(r["amount"] for r in expenses if (r.get("date") or "")[:7] == mo), 2),
+            "km": round(sum(t.get("distance") or 0 for t in trips if (t.get("date") or "")[:7] == mo), 1),
+            "fuel_cost": round(sum(f.get("amount") or 0 for f in fuel if (f.get("date") or "")[:7] == mo), 2),
+        })
+    return data
+
+
 # ---------------- Reports ----------------
 REPORT_LIST = [
     {"key": "trips", "name": "Trip Report"},

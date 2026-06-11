@@ -6,6 +6,7 @@ import { StatusBadge, ExpiryBadge } from "@/components/StatusBadge";
 import { CrudModule } from "@/components/CrudModule";
 import { ExpenseLedger } from "@/components/ExpenseLedger";
 import { CloseTripAction, RepairWorkflowAction } from "@/pages/ModulePages";
+import { VehiclePhotos } from "@/components/VehiclePhotos";
 import {
   documentConfig, tripConfig, fuelConfig, serviceConfig, repairConfig,
   tyreConfig, tyreEventConfig, accidentConfig, downtimeConfig, fastagConfig,
@@ -22,6 +23,7 @@ const Stat = ({ label, children, testId }) => (
 );
 
 const TABS = [
+  { value: "photos", label: "Photos" },
   { value: "documents", label: "Documents" },
   { value: "trips", label: "Trips" },
   { value: "fuel", label: "Fuel" },
@@ -111,6 +113,7 @@ export default function VehicleProfile() {
         </TabsList>
 
         <div className="mt-5">
+          <TabsContent value="photos"><VehiclePhotos vehicleId={id} photoIds={v.photo_file_ids || []} /></TabsContent>
           <TabsContent value="documents"><CrudModule {...documentConfig} fixedFilters={ff} testIdPrefix="vp-documents" /></TabsContent>
           <TabsContent value="trips"><CrudModule {...tripConfig} fixedFilters={ff} rowActions={CloseTripAction} testIdPrefix="vp-trips" /></TabsContent>
           <TabsContent value="fuel"><CrudModule {...fuelConfig} fixedFilters={ff} testIdPrefix="vp-fuel" /></TabsContent>

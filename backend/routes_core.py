@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File, Response
 from database import db
 from auth import require_user, require_role
 from models import VehicleCreate, DriverCreate, DocumentCreate
@@ -14,8 +14,15 @@ DOC_TYPES = ["RC", "Insurance", "Fitness", "Permit", "PUC", "Road Tax", "Fastag"
 
 # ---------- Vehicles ----------
 @router.get("/vehicles")
-async def list_vehicles(user=Depends(require_user)):
-    return await db.vehicles.find({}, {"_id": 0}).sort("vehicle_number", 1).to_list(2000)
+async def list_vehicles(request: Request, user=Depends(require_user)):
+    p = dict(request.query_params)
+    if p.get("all") == "true":
+        return await db.vehicles.find({}, {"_id": 0}).sort("vehicle_number", 1).to_list(3000)
+    page = max(int(p.get("page", 1)), 1)
+    page_size = min(max(int(p.get("page_size", 25)), 1), 200)
+    total = await db.vehicles.count_documents({})
+    items = await db.vehicles.find({}, {"_id": 0}).sort("vehicle_number", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/vehicles")
@@ -29,7 +36,7 @@ async def create_vehicle(payload: VehicleCreate, user=Depends(require_user)):
 
 
 @router.put("/vehicles/{vid}")
-async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_user)):
+async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin"))):
     payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at")}
     res = await db.vehicles.update_one({"id": vid}, {"$set": payload})
     if res.matched_count == 0:
@@ -38,7 +45,7 @@ async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(requi
 
 
 @router.delete("/vehicles/{vid}")
-async def delete_vehicle(vid: str, user=Depends(require_role("fleet_manager", "management"))):
+async def delete_vehicle(vid: str, user=Depends(require_role("admin"))):
     await db.vehicles.delete_one({"id": vid})
     # Cascade-delete dependent records to avoid orphaned alerts/expenses
     for coll in ("documents", "trips", "fuel_entries", "services", "repairs", "tyres",
@@ -103,13 +110,23 @@ async def vehicle_summary(vid: str, user=Depends(require_user)):
 
 # ---------- Drivers ----------
 @router.get("/drivers")
-async def list_drivers(user=Depends(require_user)):
-    drivers = await db.drivers.find({}, {"_id": 0}).sort("name", 1).to_list(2000)
-    vmap = {v["id"]: v.get("vehicle_number", "") for v in await db.vehicles.find({}, {"_id": 0, "id": 1, "vehicle_number": 1}).to_list(2000)}
+async def list_drivers(request: Request, user=Depends(require_user)):
+    p = dict(request.query_params)
+    vmap = {v["id"]: v.get("vehicle_number", "") for v in await db.vehicles.find({}, {"_id": 0, "id": 1, "vehicle_number": 1}).to_list(3000)}
+    if p.get("all") == "true":
+        drivers = await db.drivers.find({}, {"_id": 0}).sort("name", 1).to_list(3000)
+        for d in drivers:
+            if d.get("assigned_vehicle_id"):
+                d["assigned_vehicle_number"] = vmap.get(d["assigned_vehicle_id"], "")
+        return drivers
+    page = max(int(p.get("page", 1)), 1)
+    page_size = min(max(int(p.get("page_size", 25)), 1), 200)
+    total = await db.drivers.count_documents({})
+    drivers = await db.drivers.find({}, {"_id": 0}).sort("name", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
     for d in drivers:
         if d.get("assigned_vehicle_id"):
             d["assigned_vehicle_number"] = vmap.get(d["assigned_vehicle_id"], "")
-    return drivers
+    return {"items": drivers, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/drivers")
@@ -123,7 +140,7 @@ async def create_driver(payload: DriverCreate, user=Depends(require_user)):
 
 
 @router.put("/drivers/{did}")
-async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_user)):
+async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin"))):
     payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at")}
     res = await db.drivers.update_one({"id": did}, {"$set": payload})
     if res.matched_count == 0:
@@ -132,7 +149,7 @@ async def update_driver(did: str, payload: dict = Body(...), user=Depends(requir
 
 
 @router.delete("/drivers/{did}")
-async def delete_driver(did: str, user=Depends(require_role("fleet_manager", "management"))):
+async def delete_driver(did: str, user=Depends(require_role("admin"))):
     await db.drivers.delete_one({"id": did})
     return {"ok": True}
 
@@ -142,16 +159,21 @@ async def driver_stats(did: str, user=Depends(require_user)):
     driver = await db.drivers.find_one({"id": did}, {"_id": 0})
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
-    trips = await db.trips.find({"driver_id": did}, {"_id": 0}).to_list(5000)
-    fuel = await db.fuel_entries.find({"driver_id": did}, {"_id": 0}).to_list(5000)
+    if driver.get("assigned_vehicle_id"):
+        v = await db.vehicles.find_one({"id": driver["assigned_vehicle_id"]}, {"_id": 0, "vehicle_number": 1})
+        driver["assigned_vehicle_number"] = v.get("vehicle_number") if v else ""
+    trips = await db.trips.find({"driver_id": did}, {"_id": 0}).to_list(10000)
+    fuel = await db.fuel_entries.find({"driver_id": did}, {"_id": 0}).to_list(10000)
     mileages = [f["mileage"] for f in fuel if f.get("mileage")]
     return {
         "driver": driver,
         "total_trips": len(trips),
-        "total_km": sum(t.get("distance") or 0 for t in trips),
+        "total_km": round(sum(t.get("distance") or 0 for t in trips), 1),
+        "trip_expenses": round(sum((t.get("toll_expense") or 0) + (t.get("parking_expense") or 0) + (t.get("misc_expense") or 0) for t in trips), 2),
+        "fuel_entries": len(fuel),
+        "total_fuel_cost": round(sum(f.get("amount") or 0 for f in fuel), 2),
         "avg_mileage": round(sum(mileages) / len(mileages), 2) if mileages else None,
         "accidents_count": await db.accidents.count_documents({"driver_id": did}),
-        "breakdowns_count": await db.repairs.count_documents({"created_by_driver": did}),
     }
 
 

@@ -1,7 +1,13 @@
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
-import { Loader2, Truck, Route, Hammer, PauseCircle, ShieldAlert, Fuel, Wrench, IndianRupee, AlertTriangle } from "lucide-react";
+import { Loader2, Truck, Route, Hammer, PauseCircle, ShieldAlert, Fuel, Wrench, IndianRupee, AlertTriangle, TrendingUp } from "lucide-react";
+import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
+
+const fmtMonth = (m) => {
+  const [y, mo] = m.split("-");
+  return new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString("en-IN", { month: "short" }) + " " + y.slice(2);
+};
 
 const Metric = ({ label, value, icon: Icon, tone = "default", testId }) => {
   const tones = {
@@ -33,6 +39,7 @@ const ListCard = ({ title, items, render, emptyText, testId }) => (
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [trends, setTrends] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,6 +47,9 @@ export default function Dashboard() {
       .then((res) => setData(res.data))
       .catch(() => {})
       .finally(() => setLoading(false));
+    api.get("/dashboard/trends")
+      .then((res) => setTrends(res.data.map((t) => ({ ...t, label: fmtMonth(t.month) }))))
+      .catch(() => {});
   }, []);
 
   if (loading) {
@@ -93,6 +103,40 @@ export default function Dashboard() {
               <Metric label="KM This Month" value={fmtNum(financial.month_km)} testId="metric-month-km" />
             </div>
           </div>
+
+          {trends.some((t) => t.expense || t.km || t.fuel_cost) && (
+            <div>
+              <h2 className="mb-3 flex items-center gap-2 text-base font-bold uppercase tracking-tight text-slate-800"><TrendingUp className="h-4 w-4" /> 6-Month Trends</h2>
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div className="border border-slate-200 bg-white p-4" data-testid="trend-cost-chart">
+                  <p className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-slate-500">Monthly Cost (₹)</p>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={trends}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v) => fmtINR(v)} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey="expense" name="Total Cost" fill="#0f172a" />
+                      <Bar dataKey="fuel_cost" name="Fuel Cost" fill="#2563eb" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="border border-slate-200 bg-white p-4" data-testid="trend-km-chart">
+                  <p className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-slate-500">KM Run Per Month</p>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={trends}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v) => `${fmtNum(v)} KM`} />
+                      <Line type="monotone" dataKey="km" name="KM Run" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <ListCard

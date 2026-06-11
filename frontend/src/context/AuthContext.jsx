@@ -1,44 +1,26 @@
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import api from "@/lib/api";
+import { createContext, useContext, useState, useCallback } from "react";
+import { ROLE_LABELS } from "@/lib/format";
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(() => {
+    const role = localStorage.getItem("fleet_role");
+    return role && ROLE_LABELS[role] ? { role, name: ROLE_LABELS[role] } : null;
+  });
 
-  const checkAuth = useCallback(async () => {
-    try {
-      const res = await api.get("/auth/me");
-      setUser(res.data);
-    } catch {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
+  const selectRole = useCallback((role) => {
+    localStorage.setItem("fleet_role", role);
+    setUser({ role, name: ROLE_LABELS[role] });
   }, []);
 
-  useEffect(() => {
-    // CRITICAL: If returning from OAuth callback, skip the /me check.
-    // AuthCallback will exchange the session_id and establish the session first.
-    if (window.location.hash?.includes("session_id=")) {
-      setLoading(false);
-      return;
-    }
-    checkAuth();
-  }, [checkAuth]);
-
-  const logout = useCallback(async () => {
-    try {
-      await api.post("/auth/logout");
-    } catch {
-      // ignore
-    }
+  const logout = useCallback(() => {
+    localStorage.removeItem("fleet_role");
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, setUser, loading, logout, checkAuth }}>
+    <AuthContext.Provider value={{ user, selectRole, logout, loading: false }}>
       {children}
     </AuthContext.Provider>
   );

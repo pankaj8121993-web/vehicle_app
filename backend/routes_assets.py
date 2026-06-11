@@ -1,5 +1,7 @@
-from datetime import datetime
-from fastapi import APIRouter, Depends
+import random
+import uuid
+from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, Depends, HTTPException
 from database import db
 from auth import require_user
 from models import TyreCreate, TyreEventCreate, AccidentCreate, FastagTxnCreate, DowntimeCreate, ExpenseCreate
@@ -35,6 +37,55 @@ async def on_fastag_create(doc):
     return doc
 
 make_crud(router, "fastag", "fastag_transactions", FastagTxnCreate, on_create=on_fastag_create)
+
+
+# SIMULATED Fastag auto-sync (no public NPCI/bank Fastag API exists).
+# Generates demo toll transactions + an authoritative balance. Swap with a real API later.
+TOLL_PLAZAS = ["Khed Shivapur Plaza", "Talegaon Plaza", "Anewadi Plaza", "Tasawade Plaza",
+               "Kini Plaza", "Vashi Plaza", "Charoti Plaza", "Dahisar Plaza"]
+
+
+@router.post("/fastag/sync/{vehicle_id}")
+async def fastag_sync(vehicle_id: str, user=Depends(require_user)):
+    vehicle = await db.vehicles.find_one({"id": vehicle_id}, {"_id": 0})
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    if not vehicle.get("fastag_number"):
+        raise HTTPException(status_code=400, detail="Link a Fastag number to this vehicle first (edit the vehicle)")
+    now = datetime.now(timezone.utc)
+    txns = []
+    for _ in range(random.randint(4, 8)):
+        d = now - timedelta(days=random.randint(0, 30))
+        txns.append({
+            "id": str(uuid.uuid4()),
+            "vehicle_id": vehicle_id,
+            "txn_type": "toll",
+            "date": d.strftime("%Y-%m-%d"),
+            "toll_plaza": random.choice(TOLL_PLAZAS),
+            "amount": float(random.choice([45, 65, 85, 105, 140, 165, 210, 240, 330])),
+            "notes": None,
+            "source": "auto_sync",
+            "created_at": now.isoformat(),
+            "created_by": user["user_id"],
+        })
+    if random.random() < 0.7:
+        d = now - timedelta(days=random.randint(0, 25))
+        txns.append({
+            "id": str(uuid.uuid4()),
+            "vehicle_id": vehicle_id,
+            "txn_type": "recharge",
+            "date": d.strftime("%Y-%m-%d"),
+            "toll_plaza": None,
+            "amount": float(random.choice([500, 1000, 2000])),
+            "notes": "Auto recharge",
+            "source": "auto_sync",
+            "created_at": now.isoformat(),
+            "created_by": user["user_id"],
+        })
+    await db.fastag_transactions.insert_many([{**t} for t in txns])
+    new_balance = round(random.uniform(250, 2800), 2)
+    await db.vehicles.update_one({"id": vehicle_id}, {"$set": {"fastag_balance": new_balance}})
+    return {"synced_transactions": len(txns), "balance": new_balance, "simulated": True}
 
 
 # ---------- Downtime ----------

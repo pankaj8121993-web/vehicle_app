@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { canApprove } from "@/lib/permissions";
 import { CrudModule } from "@/components/CrudModule";
 import {
   tripConfig, fuelConfig, serviceConfig, repairConfig, tyreConfig, tyreEventConfig,
@@ -9,8 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { CheckCircle2, ThumbsUp, Play, Flag } from "lucide-react";
+import { CheckCircle2, ThumbsUp, Play, Flag, RefreshCw, Loader2 } from "lucide-react";
 
 export const PageHeader = ({ title, subtitle }) => (
   <div className="mb-6">
@@ -64,7 +68,15 @@ const NEXT_REPAIR = { reported: ["approved", "Approve", ThumbsUp], approved: ["i
 
 export const RepairWorkflowAction = (row, refresh) => {
   if (row.repair_type !== "major" || !NEXT_REPAIR[row.status]) return null;
+  return <RepairActionButton row={row} refresh={refresh} />;
+};
+
+const RepairActionButton = ({ row, refresh }) => {
+  const { user } = useAuth();
   const [next, label, Icon] = NEXT_REPAIR[row.status];
+  if (next === "approved" && !canApprove(user?.role)) {
+    return <span className="text-[11px] font-semibold uppercase text-slate-400">Awaiting approval</span>;
+  }
   const advance = async () => {
     try {
       await api.patch(`/repairs/${row.id}/status`, { status: next });
@@ -114,10 +126,63 @@ export const AccidentsPage = () => (
     <CrudModule {...accidentConfig} /></div>
 );
 
-export const FastagPage = () => (
-  <div><PageHeader title="Fastag Management" subtitle="Toll transactions and recharges — vehicle balance updates automatically" />
-    <CrudModule {...fastagConfig} /></div>
-);
+export const FastagPage = () => {
+  const [refreshKey, setRefreshKey] = useState(0);
+  return (
+    <div><PageHeader title="Fastag Management" subtitle="Toll transactions and recharges — vehicle balance updates automatically" />
+      <FastagSyncBar onSynced={() => setRefreshKey((k) => k + 1)} />
+      <CrudModule {...fastagConfig} refreshKey={refreshKey} /></div>
+  );
+};
+
+const FastagSyncBar = ({ onSynced }) => {
+  const [vehicles, setVehicles] = useState([]);
+  const [vid, setVid] = useState("");
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    api.get("/vehicles", { params: { all: "true" } }).then((r) => setVehicles(r.data)).catch(() => {});
+  }, []);
+
+  const sync = async () => {
+    if (!vid) { toast.error("Select a vehicle first"); return; }
+    setSyncing(true);
+    try {
+      const res = await api.post(`/fastag/sync/${vid}`);
+      toast.success(`Fastag synced: ${res.data.synced_transactions} transactions fetched · Balance ₹${res.data.balance}`);
+      onSynced();
+    } catch (err) {
+      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="mb-5 border border-blue-200 bg-blue-50 p-4" data-testid="fastag-sync-bar">
+      <p className="mb-3 text-xs font-bold uppercase tracking-[0.08em] text-blue-800">
+        Link Fastag — Auto-Retrieve Tolls & Balance <span className="font-normal normal-case text-blue-600">(simulated demo sync; a real bank/NPCI API can be plugged in later)</span>
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={vid} onValueChange={setVid}>
+          <SelectTrigger data-testid="fastag-sync-vehicle" className="w-64 rounded-none bg-white">
+            <SelectValue placeholder="Select vehicle (must have Fastag number)" />
+          </SelectTrigger>
+          <SelectContent>
+            {vehicles.map((v) => (
+              <SelectItem key={v.id} value={v.id}>
+                {v.vehicle_number}{v.fastag_number ? ` · ${v.fastag_number}` : " · no Fastag linked"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button data-testid="fastag-sync-btn" onClick={sync} disabled={syncing} className="rounded-none bg-blue-700 text-white hover:bg-blue-800">
+          {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Sync Fastag
+        </Button>
+      </div>
+    </div>
+  );
+};
 
 export const DowntimePage = () => (
   <div><PageHeader title="Vehicle Downtime" subtitle="Track non-operational periods and reasons" />
@@ -129,7 +194,10 @@ export const DocumentsPage = () => (
     <CrudModule {...documentConfig} /></div>
 );
 
-export const DriversPage = () => (
-  <div><PageHeader title="Driver Management" subtitle="Driver profiles, licenses and vehicle assignments" />
-    <CrudModule {...driverConfig} /></div>
-);
+export const DriversPage = () => {
+  const navigate = useNavigate();
+  return (
+    <div><PageHeader title="Driver Management" subtitle="Click a driver to open their performance profile" />
+      <CrudModule {...driverConfig} onRowClick={(row) => navigate(`/drivers/${row.id}`)} /></div>
+  );
+};
