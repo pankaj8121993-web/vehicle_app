@@ -1,0 +1,49 @@
+{
+  "summary": "First end-to-end test run for Rajguru Foods Fleet & Vehicle Management. Backend pytest suite (27 tests across auth, vehicles, drivers, documents, trips/close, fuel auto-mileage, services/alerts, repair workflow incl. major approval, tyres+events, fastag balance, downtime, expenses+ledger, reports list+generate+Excel+PDF export, upload/files, dashboard, alerts, users/role-update) — 27/27 PASSED. Frontend Playwright smoke: dashboard, vehicles list+create+profile (12 stat cards + 9/10 tabs), reports generate+export-buttons, expenses ledger (₹1,31,300 aggregated), users role-select rendering, drivers/trips list, edit/delete controls — all functional.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/dashboard /api/alerts", "issue": "Alerts include records whose vehicle_id no longer exists (orphaned): show 'Insurance expiring for Unknown' and 'Repair pending approval — : engine failure'. Cascade-delete or filter-by-existing-vehicle missing on vehicle deletion."},
+      {"endpoint": "/api/auth (no current-user role downgrade guard)", "issue": "PATCH /api/users/{self}/role lets a management user demote themselves, which can lock out the last admin. Recommend forbidding self-demotion or require ≥1 management user remain."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "VehicleProfile tabs", "issue": "Maintenance/Services tab uses data-testid 'vehicle-tab-service' (singular) while backend endpoint and review_request use 'services'. Inconsistent — align to 'vehicle-tab-services' for consistency with backend module name and CrudModule testIdPrefix convention.", "selector": "[data-testid='vehicle-tab-service']", "priority": "LOW"},
+      {"component": "DialogContent (Add Vehicle sheet)", "issue": "Radix warning: 'Missing Description or aria-describedby for DialogContent'. A11y improvement — add SheetDescription or aria-describedby=undefined explicitly.", "selector": "DialogContent", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard alerts panel", "issues": ["Orphaned alerts display 'Insurance expiring for Unknown' and trailing colon 'Repair pending approval — :' when vehicle is missing — clean up text rendering and/or hide entries when vehicle deleted."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fleet_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Backend: cascade-cleanup or filter orphaned dashboard/alerts entries when a vehicle is deleted (documents, repairs, etc.).",
+    "Backend: guard PATCH /api/users/{id}/role from allowing the last/only management user to demote themselves.",
+    "Frontend: rename data-testid 'vehicle-tab-service' → 'vehicle-tab-services' to align with backend module and review_request spec.",
+    "Frontend: add SheetDescription (or aria-describedby) to dialog sheets to silence Radix a11y warnings.",
+    "Optional: Add data-testid 'edit'/'delete' on action buttons consistently (e.g., 'vehicles-edit-{id}','vehicles-delete-{id}') to make per-row CRUD testable — currently only pencil/trash icons render without per-row testids."
+  ],
+  "critical_code_review_comments": [
+    "routes_ops.advance_repair lacks an explicit transition check — allows any status jump in REPAIR_FLOW (e.g., reported→completed) which bypasses the approval gate. Recommend enforcing next-state ordering server-side.",
+    "Reports return shape uses 'columns'/'rows' but review_request describes a generic table; consistent naming across endpoints is fine but document it.",
+    "No /api/vehicles/{vid} GET endpoint — frontend has to fetch full list + filter. Consider adding GET-by-id for efficiency.",
+    "auth.update_role does not prevent a management user from demoting the only remaining management user (lock-out risk).",
+    "Many CRUD endpoints lack pagination (to_list(5000) hardcoded). Will hit limits with scale.",
+    "DocumentCreate.expiry_date is Optional[str]; no validation that string is ISO date — invalid input silently stored."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fleet_backend.py"
+  ],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "~95% (1 minor testid mismatch, all flows functional)"},
+  "test_credentials": "session_token 'test_session_main' for user 'test-user-main' (role=management). Restored to management at end of test run.",
+  "seed_data_creation": "Tests created and self-cleaned: 1 test vehicle (TEST KA *), 1 driver, 1 document, 1 trip (closed), 2 fuel entries (mileage auto-computed = 10 km/L), 1 service, 1 minor + 1 major repair, 1 tyre+puncture+replacement, fastag recharge+toll, downtime, manual expense. Seeded vehicle 'MH 12 AB 1234' preserved. UI-created vehicle 'UI KA 8746 1' deleted after run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest is at /app/backend/tests/test_fleet_backend.py. Run with: REACT_APP_BACKEND_URL=<url> pytest backend/tests/test_fleet_backend.py -v. Session token 'test_session_main' (user 'test-user-main', role management) is persisted in MongoDB. Trip close test mutates seeded vehicle odometer (MH 12 AB 1234 went 45000→45150). Repair status endpoint expects JSON body {status:'approved'|'in_repair'|'completed'} not {action:...}. Dashboard top-level keys: compliance, operations, fuel, maintenance, financial, alerts (no 'vehicles' key). Ledger uses 'rows'/'total' (not 'items'). Reports endpoint uses 'columns'/'rows'.",
+  "rca of the issue": "No blocking RCA. Orphaned alert text ('— Unknown', 'Repair pending approval — :') is caused by alerts/dashboard joining repairs/documents to a vmap built from current vehicles; when the vehicle was deleted earlier in the test, the join falls back to empty string. Fix: skip rows whose vehicle_id is not in vmap, OR cascade-delete dependent records when DELETE /api/vehicles/{vid} is called."
+}
