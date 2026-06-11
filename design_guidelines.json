@@ -1,0 +1,140 @@
+{
+  "project_name": "Rajguru Foods Fleet & Vehicle Management System",
+  "theme_and_archetype": {
+    "theme": "Light",
+    "archetype": "4 (Swiss & High-Contrast)",
+    "reasoning": "As an operational ERP/Fleet Management dashboard, it requires high authority, clarity, and function-first design. The UI needs to handle dense tabular data and compliance alerts without visual fatigue."
+  },
+  "color_palette": {
+    "background": {
+      "main": "#F8FAFC",
+      "css_class": "bg-slate-50",
+      "description": "Base app background. Slightly cool tinted off-white for depth against pure white cards."
+    },
+    "surface": {
+      "main": "#FFFFFF",
+      "css_class": "bg-white",
+      "border_class": "border-slate-200",
+      "description": "Pure white for all cards, tables, and widget containers. Always use a 1px solid border, no shadows."
+    },
+    "primary": {
+      "main": "#0F172A",
+      "css_class": "bg-slate-900",
+      "text_class": "text-slate-900",
+      "description": "High contrast dark slate for primary actions and heavy headings."
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#64748B",
+      "muted": "#94A3B8"
+    },
+    "semantic": {
+      "danger": {
+        "main": "#DC2626",
+        "css_class": "text-red-600 bg-red-50 border-red-200",
+        "description": "Used for document expiry, accidents, and critical downtime alerts."
+      },
+      "warning": {
+        "main": "#D97706",
+        "css_class": "text-amber-600 bg-amber-50 border-amber-200",
+        "description": "Used for upcoming maintenance, pending approvals, and low fuel warnings."
+      },
+      "success": {
+        "main": "#16A34A",
+        "css_class": "text-green-600 bg-green-50 border-green-200",
+        "description": "Used for active running vehicles, valid documents, and completed trips."
+      },
+      "info": {
+        "main": "#2563EB",
+        "css_class": "text-blue-600 bg-blue-50 border-blue-200",
+        "description": "Used for active Fastag recharges and informational tags."
+      }
+    }
+  },
+  "typography": {
+    "strategy": "Swiss Brutalist (Authority & Tech)",
+    "fonts": {
+      "heading": "Chivo",
+      "body": "IBM Plex Sans",
+      "mono": "IBM Plex Mono"
+    },
+    "scales": {
+      "h1_dashboard": "text-3xl md:text-4xl font-black tracking-tighter text-slate-900",
+      "h2_section": "text-xl md:text-2xl font-bold tracking-tight text-slate-900",
+      "h3_widget": "text-base font-bold tracking-tight text-slate-800 uppercase",
+      "body": "text-sm md:text-base font-normal leading-relaxed text-slate-700",
+      "data_label": "text-xs font-semibold tracking-[0.05em] uppercase text-slate-500",
+      "data_value": "text-lg md:text-xl font-mono font-bold text-slate-900"
+    }
+  },
+  "layout_and_spacing": {
+    "grid_system": "The 'Control Room' Grid",
+    "dashboard_grid": "grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-6",
+    "container_padding": "p-6 md:p-8",
+    "card_padding": "p-5 md:p-6",
+    "border_radius": "rounded-none md:rounded-sm",
+    "alignment_rules": {
+      "data_tables": "Left-align text, right-align numeric values and currency (₹).",
+      "forms": "Left-align labels, stack inputs vertically."
+    },
+    "structure": {
+      "sidebar": "Fixed left sidebar for navigation (Vehicles, Drivers, Reports, Alerts).",
+      "topbar": "Global search, user profile, and high-priority notification bell."
+    }
+  },
+  "component_strategy": {
+    "library": "shadcn/ui",
+    "modifications": {
+      "cards": "Remove default shadow. Add border-slate-200. Use sharp corners or max rounded-sm.",
+      "tabs": "For the Vehicle Profile page (9 tabs). Override h-9 to h-12. Use scrollable tabs horizontally on mobile. Active tab gets a stark 2px bottom border (border-slate-900) instead of background fill.",
+      "tables": "Dense rows. Hover state: hover:bg-slate-50 hover:text-slate-900. Striped rows allowed for readability.",
+      "buttons": "Primary: bg-slate-900 text-white rounded-none hover:bg-slate-800. Secondary: border border-slate-300 bg-white text-slate-700 rounded-none hover:bg-slate-50."
+    },
+    "testing_attributes": {
+      "rule": "All interactive and key informational elements MUST include a data-testid attribute.",
+      "examples": [
+        "data-testid='login-submit-btn'",
+        "data-testid='vehicle-tab-fuel'",
+        "data-testid='metric-card-active-trips'",
+        "data-testid='export-excel-btn'"
+      ]
+    }
+  },
+  "specific_views": {
+    "login_page": {
+      "layout": "Split screen. Left: High-quality logistics image with gradient overlay. Right: Clean white login form with Google OAuth button.",
+      "testid": "data-testid='login-page-container'"
+    },
+    "dashboard_overview": {
+      "top_row": "Hero metrics (Active Vehicles, Alerts/Expirations, Today's Expenses).",
+      "alerts_panel": "Dedicated high-visibility list for expiring documents and scheduled maintenance."
+    },
+    "vehicle_profile": {
+      "header": "Vehicle Number Plate format (e.g., MH 12 AB 1234) as H1. Status pill (Active/Maintenance/Downtime).",
+      "navigation": "9 Shadcn Tabs: Documents, Trips, Fuel, Service, Repairs, Tyres, Accidents, Expenses, Downtime."
+    }
+  },
+  "motion_and_interactions": {
+    "hover_states": "Crisp and instant. Background shifts by 1 shade (e.g., white to slate-50). No bouncy animations.",
+    "page_transitions": "None. Keep it feeling like a fast native app.",
+    "modals": "Slide-in from right (Sheet component) for adding Fuel/Trip data. Use Dialog for destructive actions (e.g., deleting a record)."
+  },
+  "icons_and_assets": {
+    "library": "lucide-react",
+    "style": "Stroke width 2.0, crisp, functional.",
+    "media": {
+      "login_background": {
+        "url": "https://images.pexels.com/photos/6940962/pexels-photo-6940962.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=1080&w=1920",
+        "description": "White logistics truck driving on a winding road, representing supply chain flow. Use with a black/30 overlay."
+      },
+      "driver_avatar_placeholder": {
+        "url": "https://images.pexels.com/photos/14797991/pexels-photo-14797991.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=150&w=150",
+        "description": "Sikh truck driver portrait for placeholder profiles in Driver Management."
+      }
+    }
+  },
+  "accessibility_and_ux": {
+    "contrast": "Ensure all text against slate-50/white passes APCA standards. Warnings (Amber) must have dark amber text, not white.",
+    "forms": "All inputs must have visible labels. Currency inputs must show '₹' prefix. Distance inputs must show 'KM' suffix."
+  }
+}
