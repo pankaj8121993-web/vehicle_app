@@ -25,7 +25,7 @@ const TABS = [
   { value: "documents", label: "Documents" },
   { value: "trips", label: "Trips" },
   { value: "fuel", label: "Fuel" },
-  { value: "service", label: "Service" },
+  { value: "services", label: "Service" },
   { value: "repairs", label: "Repairs" },
   { value: "tyres", label: "Tyres" },
   { value: "accidents", label: "Accidents" },
@@ -114,7 +114,7 @@ export default function VehicleProfile() {
           <TabsContent value="documents"><CrudModule {...documentConfig} fixedFilters={ff} testIdPrefix="vp-documents" /></TabsContent>
           <TabsContent value="trips"><CrudModule {...tripConfig} fixedFilters={ff} rowActions={CloseTripAction} testIdPrefix="vp-trips" /></TabsContent>
           <TabsContent value="fuel"><CrudModule {...fuelConfig} fixedFilters={ff} testIdPrefix="vp-fuel" /></TabsContent>
-          <TabsContent value="service"><CrudModule {...serviceConfig} fixedFilters={ff} testIdPrefix="vp-service" /></TabsContent>
+          <TabsContent value="services"><CrudModule {...serviceConfig} fixedFilters={ff} testIdPrefix="vp-services" /></TabsContent>
           <TabsContent value="repairs"><CrudModule {...repairConfig} fixedFilters={ff} rowActions={RepairWorkflowAction} testIdPrefix="vp-repairs" /></TabsContent>
           <TabsContent value="tyres">
             <CrudModule {...tyreConfig} fixedFilters={ff} testIdPrefix="vp-tyres" />

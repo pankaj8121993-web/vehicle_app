@@ -40,6 +40,10 @@ async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(requi
 @router.delete("/vehicles/{vid}")
 async def delete_vehicle(vid: str, user=Depends(require_role("fleet_manager", "management"))):
     await db.vehicles.delete_one({"id": vid})
+    # Cascade-delete dependent records to avoid orphaned alerts/expenses
+    for coll in ("documents", "trips", "fuel_entries", "services", "repairs", "tyres",
+                 "tyre_events", "accidents", "fastag_transactions", "downtimes", "expenses"):
+        await db[coll].delete_many({"vehicle_id": vid})
     return {"ok": True}
 
 

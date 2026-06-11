@@ -118,6 +118,11 @@ async def set_role(user_id: str, payload: dict = Body(...), user=Depends(require
     role = payload.get("role")
     if role not in ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if target and target.get("role") == "management" and role != "management":
+        mgmt_count = await db.users.count_documents({"role": "management"})
+        if mgmt_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot demote the last Management user")
     res = await db.users.update_one({"user_id": user_id}, {"$set": {"role": role}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")

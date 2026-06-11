@@ -35,8 +35,10 @@ async def compute_alerts():
 
     latest = await latest_doc_expiries()
     for (vid, dtype), d in latest.items():
+        if vid not in vmap:
+            continue  # skip orphaned records of deleted vehicles
         exp = d["expiry_date"]
-        vnum = vmap.get(vid, "Unknown")
+        vnum = vmap[vid]
         if exp < today:
             alerts.append({"type": "document_expired", "severity": "danger",
                            "message": f"{dtype} EXPIRED for {vnum}", "vehicle_number": vnum, "due_date": exp})
@@ -80,6 +82,8 @@ async def compute_alerts():
 
     pending = await db.repairs.find({"status": "reported", "repair_type": "major"}, {"_id": 0}).to_list(500)
     for r in pending:
+        if r["vehicle_id"] not in vmap:
+            continue
         alerts.append({"type": "repair_pending_approval", "severity": "warning",
                        "message": f"Repair pending approval — {vmap.get(r['vehicle_id'], '')}: {r.get('issue', '')}",
                        "vehicle_number": vmap.get(r["vehicle_id"], ""), "due_date": r.get("date")})

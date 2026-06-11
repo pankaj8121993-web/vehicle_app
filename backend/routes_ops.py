@@ -88,6 +88,9 @@ async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends
     new_status = payload.get("status")
     if new_status not in REPAIR_FLOW:
         raise HTTPException(status_code=400, detail="Invalid status")
+    current_idx = REPAIR_FLOW.index(repair.get("status", "reported"))
+    if REPAIR_FLOW.index(new_status) != current_idx + 1:
+        raise HTTPException(status_code=400, detail=f"Invalid transition: {repair.get('status')} → {new_status}")
     if new_status == "approved" and user.get("role") not in ("fleet_manager", "management"):
         raise HTTPException(status_code=403, detail="Only Fleet Manager or Management can approve repairs")
     updates = {"status": new_status}
