@@ -4,11 +4,17 @@
 Build a centralized Fleet & Vehicle Management System for Rajguru Foods: a complete digital vehicle file and fleet ERP covering vehicle master, document management with expiry alerts, drivers, trips, fuel, maintenance, breakdown/repairs, tyres, accidents, Fastag, downtime, expenses, alerts, dashboards and reports — accessible on web & mobile with role-based access (Driver, Data Entry Operator, Fleet Manager, Management). Currency: INR (₹); distances in KM.
 
 ## User Choices
-- Auth: Emergent-managed Google login (first user → management role; later users → driver; management changes roles via /users)
+- Auth: REMOVED (2026-06-11, user request). Replaced by role-picker screen at /login — 4 profiles with distinct rights, role sent via X-Role header:
+  - Driver: create trips/fuel/breakdown reports only; read-only elsewhere; no edit/delete
+  - Data Entry Operator: create + edit everything, upload files; no delete
+  - Management: data_entry rights + approve major repairs + dashboards/reports
+  - Admin: full control incl. delete
 - Scope: Build ALL modules in MVP
 - File uploads: Yes (Emergent object storage)
 - Report export: Excel AND PDF
 - INR + KM confirmed
+- Fastag auto-retrieval: SIMULATED sync (no public NPCI/bank API) — clearly labeled in UI, swappable for real API later
+- Vehicle photos: multiple per vehicle with gallery tab
 
 ## Architecture
 - **Backend**: FastAPI (port 8001, /api prefix), MongoDB (motor), modular routers:
@@ -26,14 +32,21 @@ Build a centralized Fleet & Vehicle Management System for Rajguru Foods: a compl
 ## What's Implemented (2026-06-11)
 All modules above, tested end-to-end (testing agent iteration_1: backend 27/27 passed; frontend ~95%, all flows functional). Fixes applied post-test: orphaned alert filtering, vehicle cascade delete, last-management demotion guard, sequential repair transitions, tab testid alignment.
 
+### Iteration 2 (2026-06-11) — tested, 27/27 backend passed
+- Auth removed → role-picker (`RoleSelect.jsx`, `permissions.js`, X-Role header in `auth.py`); Users page removed; RBAC enforced backend (make_crud guards) + frontend (button gating)
+- Server-side pagination (25/page, `?all=true` for dropdown options) across all list endpoints + CrudModule footer
+- Driver profile page `/drivers/:id` (stats + Trips/Fuel/Accidents tabs); driver rows clickable
+- Dashboard 6-month trend charts (`/api/dashboard/trends` + recharts: monthly cost bars, KM line)
+- Vehicle photo gallery (Photos tab — now 11 tabs on vehicle profile; `photo_file_ids` on vehicle; `VehiclePhotos.jsx`)
+- SIMULATED Fastag auto-sync (`POST /api/fastag/sync/{vehicle_id}` — MOCKED demo data generator, labeled in UI)
+
 ## Test Setup
-- Test session: see `/app/memory/test_credentials.md` and `/app/auth_testing.md`
-- Backend pytest: `/app/backend/tests/test_fleet_backend.py`
+- No auth. Backend: `X-Role: driver|data_entry|management|admin` header (missing → admin). Frontend: localStorage `fleet_role`.
+- Backend pytest (canonical regression, X-Role model): `/app/backend/tests/test_fleet_backend.py`
 
 ## Backlog / Next Tasks
-- P1: Pagination for large datasets (lists capped at 3000); GET /vehicles/{id} endpoint; driver profile page using existing /drivers/{id}/stats
-- P1: Alerts for missing fuel/trip entries and pending invoice uploads (spec §16, partially covered)
-- P2: Charts on dashboard (recharts is installed); monthly/yearly expense trend graphs
-- P2: Notifications (email/SMS) for expiring documents
-- P2: Multi-file attachments per record (currently one file per record)
+- P1: Email/SMS expiry notifications (user deferred to "later") — needs SendGrid/Twilio keys
+- P2: Real Fastag API integration when bank API access is available (replace simulated sync)
+- P2: Charts on vehicle profile; monthly/yearly expense trend filters
+- P2: Multi-file attachments per record (currently one file per record + multi-photo on vehicles)
 - P2: ISO date validation on inputs; audit trail of edits
