@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
 
@@ -44,7 +44,7 @@ export const DrillDownDialog = ({ open, onClose, title, endpoint, params, column
       <DialogContent className="max-h-[85vh] max-w-4xl overflow-hidden rounded-none p-0" data-testid="drilldown-dialog">
         <DialogHeader className="border-b border-slate-200 px-6 py-4">
           <DialogTitle className="font-heading text-xl font-black tracking-tighter text-slate-900">{title}</DialogTitle>
-          <p className="text-xs text-slate-500" data-testid="drilldown-count">{loading ? "Loading…" : `${rows.length} record${rows.length === 1 ? "" : "s"}`}</p>
+          <DialogDescription className="text-xs text-slate-500" data-testid="drilldown-count">{loading ? "Loading…" : `${rows.length} record${rows.length === 1 ? "" : "s"}`}</DialogDescription>
         </DialogHeader>
         <div className="max-h-[65vh] overflow-auto">
           {loading ? (
