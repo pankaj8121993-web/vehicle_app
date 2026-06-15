@@ -300,6 +300,253 @@ class TestVehicleSummary:
             assert k in d
 
 
+# ---------------- Phase 1: Driver Exit Management ----------------
+class TestDriverExit:
+    def _create_driver(self, name_prefix="TEST_EXIT"):
+        payload = {"name": f"{name_prefix}_{uuid.uuid4().hex[:6]}", "mobile": "9999999999"}
+        r = requests.post(f"{API}/drivers", headers=h("admin"), json=payload)
+        assert r.status_code in (200, 201), r.text
+        return r.json()
+
+    def test_drivers_active_endpoint(self):
+        r = requests.get(f"{API}/drivers/active", headers=h("admin"))
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        for d in data:
+            assert d.get("status") in ("active", "on_leave", None)
+
+    def test_data_entry_cannot_set_resigned(self):
+        d = self._create_driver()
+        try:
+            r = requests.put(f"{API}/drivers/{d['id']}", headers=h("data_entry"),
+                             json={"status": "resigned"})
+            assert r.status_code == 403, f"data_entry should not set resigned: {r.status_code} {r.text}"
+        finally:
+            requests.delete(f"{API}/drivers/{d['id']}", headers=h("admin"))
+
+    def test_management_can_set_resigned_with_auto_exit_date(self):
+        d = self._create_driver()
+        try:
+            r = requests.put(f"{API}/drivers/{d['id']}", headers=h("management"),
+                             json={"status": "resigned"})
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["status"] == "resigned"
+            assert body.get("exit_date"), "exit_date should be auto-filled"
+            assert body.get("assigned_vehicle_id") in (None, ""), "vehicle should be unassigned on exit"
+        finally:
+            requests.delete(f"{API}/drivers/{d['id']}", headers=h("admin"))
+
+    def test_terminate_requires_management(self):
+        d = self._create_driver()
+        try:
+            # data_entry blocked
+            r1 = requests.put(f"{API}/drivers/{d['id']}", headers=h("data_entry"),
+                              json={"status": "terminated"})
+            assert r1.status_code == 403
+            # admin allowed
+            r2 = requests.put(f"{API}/drivers/{d['id']}", headers=h("admin"),
+                              json={"status": "terminated"})
+            assert r2.status_code == 200
+            assert r2.json().get("exit_date")
+        finally:
+            requests.delete(f"{API}/drivers/{d['id']}", headers=h("admin"))
+
+    def test_delete_driver_blocked_when_has_trips(self):
+        d = self._create_driver()
+        trip_id = None
+        try:
+            # Create a trip referencing this driver
+            tr = requests.post(f"{API}/trips", headers=h("admin"), json={
+                "vehicle_id": SEEDED_VEHICLE_ID, "driver_id": d["id"],
+                "date": "2026-01-20", "opening_km": 5000,
+            })
+            assert tr.status_code in (200, 201), tr.text
+            trip_id = tr.json()["id"]
+            # Now delete should fail
+            r = requests.delete(f"{API}/drivers/{d['id']}", headers=h("admin"))
+            assert r.status_code == 400, f"Expected 400, got {r.status_code}: {r.text}"
+        finally:
+            if trip_id:
+                requests.delete(f"{API}/trips/{trip_id}", headers=h("admin"))
+            requests.delete(f"{API}/drivers/{d['id']}", headers=h("admin"))
+
+    def test_active_endpoint_excludes_resigned(self):
+        d = self._create_driver(name_prefix="TEST_RESIGN_EXCLUDED")
+        try:
+            requests.put(f"{API}/drivers/{d['id']}", headers=h("admin"),
+                         json={"status": "resigned"})
+            r = requests.get(f"{API}/drivers/active", headers=h("admin"))
+            assert r.status_code == 200
+            ids = [x["id"] for x in r.json()]
+            assert d["id"] not in ids
+        finally:
+            requests.delete(f"{API}/drivers/{d['id']}", headers=h("admin"))
+
+
+# ---------------- Phase 1: Vehicle Disposal ----------------
+class TestVehicleDisposal:
+    def _create_vehicle(self):
+        payload = {"vehicle_number": f"TEST_DISP_{uuid.uuid4().hex[:6]}",
+                   "vtype": "Truck", "make": "Tata", "model": "Test"}
+        r = requests.post(f"{API}/vehicles", headers=h("admin"), json=payload)
+        assert r.status_code in (200, 201), r.text
+        return r.json()
+
+    def test_data_entry_cannot_mark_sold(self):
+        v = self._create_vehicle()
+        try:
+            r = requests.put(f"{API}/vehicles/{v['id']}", headers=h("data_entry"),
+                             json={"status": "sold"})
+            assert r.status_code == 403, r.text
+        finally:
+            requests.delete(f"{API}/vehicles/{v['id']}", headers=h("admin"))
+
+    def test_management_can_sell_auto_date(self):
+        v = self._create_vehicle()
+        try:
+            r = requests.put(f"{API}/vehicles/{v['id']}", headers=h("management"),
+                             json={"status": "sold", "sale_value": 350000, "buyer_name": "Test Buyer"})
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["status"] == "sold"
+            assert body.get("disposal_date")
+            assert body.get("sale_value") == 350000
+        finally:
+            requests.delete(f"{API}/vehicles/{v['id']}", headers=h("admin"))
+
+    def test_management_can_scrap_auto_date(self):
+        v = self._create_vehicle()
+        try:
+            r = requests.put(f"{API}/vehicles/{v['id']}", headers=h("admin"),
+                             json={"status": "scrapped"})
+            assert r.status_code == 200, r.text
+            assert r.json().get("disposal_date")
+        finally:
+            requests.delete(f"{API}/vehicles/{v['id']}", headers=h("admin"))
+
+    def test_dashboard_excludes_disposed(self):
+        v = self._create_vehicle()
+        # Mark disposed
+        requests.put(f"{API}/vehicles/{v['id']}", headers=h("admin"), json={"status": "scrapped"})
+        try:
+            r = requests.get(f"{API}/dashboard", headers=h("admin"))
+            assert r.status_code == 200
+            # Default vehicle list (no include_disposed) must NOT include it
+            r2 = requests.get(f"{API}/vehicles?all=true", headers=h("admin"))
+            assert v["id"] not in [x["id"] for x in r2.json()]
+            # With include_disposed=true it IS there
+            r3 = requests.get(f"{API}/vehicles?all=true&include_disposed=true", headers=h("admin"))
+            assert v["id"] in [x["id"] for x in r3.json()]
+        finally:
+            requests.delete(f"{API}/vehicles/{v['id']}", headers=h("admin"))
+
+    def test_delete_blocked_when_has_history(self):
+        v = self._create_vehicle()
+        tr_id = None
+        try:
+            tr = requests.post(f"{API}/trips", headers=h("admin"), json={
+                "vehicle_id": v["id"], "date": "2026-01-21", "opening_km": 1000,
+            })
+            assert tr.status_code in (200, 201)
+            tr_id = tr.json()["id"]
+            r = requests.delete(f"{API}/vehicles/{v['id']}", headers=h("admin"))
+            assert r.status_code == 400, f"Should block delete with history: {r.status_code} {r.text}"
+            # After removing trip, delete should succeed
+            requests.delete(f"{API}/trips/{tr_id}", headers=h("admin"))
+            tr_id = None
+            r2 = requests.delete(f"{API}/vehicles/{v['id']}", headers=h("admin"))
+            assert r2.status_code == 200
+        finally:
+            if tr_id:
+                requests.delete(f"{API}/trips/{tr_id}", headers=h("admin"))
+            requests.delete(f"{API}/vehicles/{v['id']}", headers=h("admin"))
+
+
+# ---------------- Phase 1: Drilldown endpoints ----------------
+class TestDrilldowns:
+    def test_docs_expiring(self):
+        r = requests.get(f"{API}/drilldowns/docs_expiring?days=30", headers=h("admin"))
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_docs_expired(self):
+        r = requests.get(f"{API}/drilldowns/docs_expired", headers=h("admin"))
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_vehicles_under_repair(self):
+        r = requests.get(f"{API}/drilldowns/vehicles_under_repair", headers=h("admin"))
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_service_due_windows(self):
+        for w in ("due_soon", "overdue", "due_or_overdue"):
+            r = requests.get(f"{API}/drilldowns/service_due?window={w}", headers=h("admin"))
+            assert r.status_code == 200, f"{w}: {r.text}"
+            assert isinstance(r.json(), list)
+
+    def test_top_fuel_consumers(self):
+        r = requests.get(f"{API}/drilldowns/top_fuel_consumers", headers=h("admin"))
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        if data:
+            assert "vehicle_number" in data[0] and "amount" in data[0]
+
+    def test_top_cost_vehicles(self):
+        r = requests.get(f"{API}/drilldowns/top_cost_vehicles", headers=h("admin"))
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        if data:
+            assert "total" in data[0] and "by_category" in data[0]
+
+    def test_low_mileage_vehicles(self):
+        r = requests.get(f"{API}/drilldowns/low_mileage_vehicles?threshold=100", headers=h("admin"))
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_licenses_expiring(self):
+        r = requests.get(f"{API}/drilldowns/licenses_expiring?days=365", headers=h("admin"))
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_active_trips(self):
+        r = requests.get(f"{API}/drilldowns/active_trips", headers=h("admin"))
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_drilldowns_exclude_disposed_vehicles(self):
+        # Create disposed vehicle + a doc that would expire — verify it's NOT in drilldown
+        v_payload = {"vehicle_number": f"TEST_DL_{uuid.uuid4().hex[:6]}",
+                     "vtype": "Truck", "make": "Tata", "model": "DL"}
+        vc = requests.post(f"{API}/vehicles", headers=h("admin"), json=v_payload)
+        vid = vc.json()["id"]
+        doc_id = None
+        try:
+            past = "2020-01-01"
+            dc = requests.post(f"{API}/documents", headers=h("admin"), json={
+                "vehicle_id": vid, "doc_type": "RC", "doc_number": "TEST_DL",
+                "expiry_date": past,
+            })
+            assert dc.status_code in (200, 201)
+            doc_id = dc.json()["id"]
+            # Should show in docs_expired
+            r1 = requests.get(f"{API}/drilldowns/docs_expired", headers=h("admin"))
+            assert vid in [x["vehicle_id"] for x in r1.json()]
+            # Dispose vehicle
+            requests.put(f"{API}/vehicles/{vid}", headers=h("admin"), json={"status": "scrapped"})
+            # Now NOT in docs_expired
+            r2 = requests.get(f"{API}/drilldowns/docs_expired", headers=h("admin"))
+            assert vid not in [x["vehicle_id"] for x in r2.json()]
+        finally:
+            if doc_id:
+                requests.delete(f"{API}/documents/{doc_id}", headers=h("admin"))
+            requests.delete(f"{API}/vehicles/{vid}", headers=h("admin"))
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v", "--tb=short"]))

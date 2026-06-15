@@ -4,6 +4,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { canApprove } from "@/lib/permissions";
 import { CrudModule } from "@/components/CrudModule";
+import { PeriodFilter } from "@/components/PeriodFilter";
 import {
   tripConfig, fuelConfig, serviceConfig, repairConfig, tyreConfig, tyreEventConfig,
   accidentConfig, fastagConfig, downtimeConfig, documentConfig, driverConfig,
@@ -94,32 +95,60 @@ const RepairActionButton = ({ row, refresh }) => {
 };
 
 // ---- Pages ----
-export const TripsPage = () => (
-  <div><PageHeader title="Trip Management" subtitle="Record and monitor every vehicle movement" />
-    <CrudModule {...tripConfig} rowActions={CloseTripAction} /></div>
-);
+const useDateRange = () => {
+  const [range, setRange] = useState({});
+  const filters = {};
+  if (range.start_date) filters.start_date = range.start_date;
+  if (range.end_date) filters.end_date = range.end_date;
+  return { filters, setRange };
+};
 
-export const FuelPage = () => (
-  <div><PageHeader title="Fuel Management" subtitle="Fuel entries, mileage and fuel cost per KM are calculated automatically" />
-    <CrudModule {...fuelConfig} /></div>
-);
+export const TripsPage = () => {
+  const { filters, setRange } = useDateRange();
+  return (
+    <div><PageHeader title="Trip Management" subtitle="Record and monitor every vehicle movement" />
+      <PeriodFilter testIdPrefix="trips-period" onChange={setRange} />
+      <CrudModule {...tripConfig} fixedFilters={filters} rowActions={CloseTripAction} /></div>
+  );
+};
 
-export const MaintenancePage = () => (
-  <div><PageHeader title="Maintenance" subtitle="Scheduled services with next-due tracking by date and KM" />
-    <CrudModule {...serviceConfig} /></div>
-);
+export const FuelPage = () => {
+  const { filters, setRange } = useDateRange();
+  return (
+    <div><PageHeader title="Fuel Management" subtitle="Fuel entries, mileage and fuel cost per KM are calculated automatically" />
+      <PeriodFilter testIdPrefix="fuel-period" onChange={setRange} />
+      <CrudModule {...fuelConfig} fixedFilters={filters} /></div>
+  );
+};
 
-export const RepairsPage = () => (
-  <div><PageHeader title="Breakdown & Repairs" subtitle="Minor repairs are logged directly; major repairs follow Reported → Approved → In Repair → Completed" />
-    <CrudModule {...repairConfig} rowActions={RepairWorkflowAction} /></div>
-);
+export const MaintenancePage = () => {
+  const { filters, setRange } = useDateRange();
+  return (
+    <div><PageHeader title="Maintenance" subtitle="Scheduled services with next-due tracking by date and KM" />
+      <PeriodFilter testIdPrefix="maintenance-period" onChange={setRange} />
+      <CrudModule {...serviceConfig} fixedFilters={filters} /></div>
+  );
+};
 
-export const TyresPage = () => (
-  <div><PageHeader title="Tyre Management" subtitle="Tyre master with punctures, rotations, retreading and replacements" />
-    <CrudModule {...tyreConfig} />
-    <h2 className="mb-3 mt-10 text-xl font-bold tracking-tight text-slate-900">Tyre Events</h2>
-    <CrudModule {...tyreEventConfig} /></div>
-);
+export const RepairsPage = () => {
+  const { filters, setRange } = useDateRange();
+  return (
+    <div><PageHeader title="Breakdown & Repairs" subtitle="Minor repairs are logged directly; major repairs follow Reported → Approved → In Repair → Completed" />
+      <PeriodFilter testIdPrefix="repairs-period" onChange={setRange} />
+      <CrudModule {...repairConfig} fixedFilters={filters} rowActions={RepairWorkflowAction} /></div>
+  );
+};
+
+export const TyresPage = () => {
+  const { filters, setRange } = useDateRange();
+  return (
+    <div><PageHeader title="Tyre Management" subtitle="Tyre master with punctures, rotations, retreading and replacements" />
+      <PeriodFilter testIdPrefix="tyres-period" onChange={setRange} />
+      <CrudModule {...tyreConfig} fixedFilters={filters} />
+      <h2 className="mb-3 mt-10 text-xl font-bold tracking-tight text-slate-900">Tyre Events</h2>
+      <CrudModule {...tyreEventConfig} fixedFilters={filters} /></div>
+  );
+};
 
 export const AccidentsPage = () => (
   <div><PageHeader title="Accident Register" subtitle="Accident records, FIR, insurance claims and settlements" />
@@ -128,10 +157,12 @@ export const AccidentsPage = () => (
 
 export const FastagPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
+  const { filters, setRange } = useDateRange();
   return (
     <div><PageHeader title="Fastag Management" subtitle="Toll transactions and recharges — vehicle balance updates automatically" />
       <FastagSyncBar onSynced={() => setRefreshKey((k) => k + 1)} />
-      <CrudModule {...fastagConfig} refreshKey={refreshKey} /></div>
+      <PeriodFilter testIdPrefix="fastag-period" onChange={setRange} />
+      <CrudModule {...fastagConfig} fixedFilters={filters} refreshKey={refreshKey} /></div>
   );
 };
 
@@ -184,10 +215,14 @@ const FastagSyncBar = ({ onSynced }) => {
   );
 };
 
-export const DowntimePage = () => (
-  <div><PageHeader title="Vehicle Downtime" subtitle="Track non-operational periods and reasons" />
-    <CrudModule {...downtimeConfig} /></div>
-);
+export const DowntimePage = () => {
+  const { filters, setRange } = useDateRange();
+  return (
+    <div><PageHeader title="Vehicle Downtime" subtitle="Track non-operational periods and reasons" />
+      <PeriodFilter testIdPrefix="downtime-period" onChange={setRange} />
+      <CrudModule {...downtimeConfig} fixedFilters={filters} /></div>
+  );
+};
 
 export const DocumentsPage = () => (
   <div><PageHeader title="Document Management" subtitle="RC, Insurance, Fitness, Permit, PUC, Road Tax and more — with expiry tracking" />

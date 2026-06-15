@@ -3,19 +3,23 @@ import api from "@/lib/api";
 import { fmtINR, fmtNum } from "@/lib/format";
 import { Loader2 } from "lucide-react";
 
-export const ExpenseLedger = ({ vehicleId }) => {
+export const ExpenseLedger = ({ vehicleId, startDate, endDate }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/expenses/ledger", { params: vehicleId ? { vehicle_id: vehicleId } : {} });
+      const params = {};
+      if (vehicleId) params.vehicle_id = vehicleId;
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
+      const res = await api.get("/expenses/ledger", { params });
       setData(res.data);
     } catch { /* handled by empty state */ } finally {
       setLoading(false);
     }
-  }, [vehicleId]);
+  }, [vehicleId, startDate, endDate]);
 
   useEffect(() => { load(); }, [load]);
 

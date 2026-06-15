@@ -10,18 +10,35 @@ from storage import put_object, get_object, APP_NAME
 router = APIRouter(tags=["core"])
 
 DOC_TYPES = ["RC", "Insurance", "Fitness", "Permit", "PUC", "Road Tax", "Fastag", "Other"]
+DISPOSED_STATUSES = ["sold", "scrapped"]
+DRIVER_EXIT_STATUSES = ["resigned", "terminated"]
+DRIVER_ACTIVE_STATUSES = ["active", "on_leave"]
+
+# Collections checked when blocking a vehicle delete
+VEHICLE_HISTORY_COLLECTIONS = [
+    "trips", "fuel_entries", "services", "repairs", "tyres", "tyre_events",
+    "accidents", "fastag_transactions", "downtimes", "expenses", "documents",
+]
+# Collections checked when blocking a driver delete
+DRIVER_HISTORY_COLLECTIONS = ["trips", "fuel_entries", "accidents"]
+
+
+def today_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 # ---------- Vehicles ----------
 @router.get("/vehicles")
 async def list_vehicles(request: Request, user=Depends(require_user)):
     p = dict(request.query_params)
+    include_disposed = (p.get("include_disposed") or "").lower() == "true"
+    q = {} if include_disposed else {"status": {"$nin": DISPOSED_STATUSES}}
     if p.get("all") == "true":
-        return await db.vehicles.find({}, {"_id": 0}).sort("vehicle_number", 1).to_list(3000)
+        return await db.vehicles.find(q, {"_id": 0}).sort("vehicle_number", 1).to_list(3000)
     page = max(int(p.get("page", 1)), 1)
     page_size = min(max(int(p.get("page_size", 25)), 1), 200)
-    total = await db.vehicles.count_documents({})
-    items = await db.vehicles.find({}, {"_id": 0}).sort("vehicle_number", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    total = await db.vehicles.count_documents(q)
+    items = await db.vehicles.find(q, {"_id": 0}).sort("vehicle_number", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -38,6 +55,31 @@ async def create_vehicle(payload: VehicleCreate, user=Depends(require_user)):
 @router.put("/vehicles/{vid}")
 async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin"))):
     payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at")}
+    existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    new_status = payload.get("status")
+    is_disposing = (
+        new_status in DISPOSED_STATUSES
+        and existing.get("status") not in DISPOSED_STATUSES
+    )
+    if is_disposing:
+        if user.get("role") not in ("management", "admin"):
+            raise HTTPException(status_code=403, detail="Only Management or Admin can mark a vehicle as Sold or Scrapped")
+        if not payload.get("disposal_date"):
+            payload["disposal_date"] = today_iso()
+        # Close any open downtimes
+        await db.downtimes.update_many(
+            {"vehicle_id": vid, "status": "open"},
+            {"$set": {"status": "closed", "end_date": payload["disposal_date"]}},
+        )
+        # Unassign any drivers currently linked to this vehicle
+        await db.drivers.update_many(
+            {"assigned_vehicle_id": vid},
+            {"$set": {"assigned_vehicle_id": None}},
+        )
+
     res = await db.vehicles.update_one({"id": vid}, {"$set": payload})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -46,11 +88,20 @@ async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(requi
 
 @router.delete("/vehicles/{vid}")
 async def delete_vehicle(vid: str, user=Depends(require_role("admin"))):
+    existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    # Block delete if any history exists (cascade-delete removed in Phase 1)
+    for coll in VEHICLE_HISTORY_COLLECTIONS:
+        if await db[coll].count_documents({"vehicle_id": vid}, limit=1):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Cannot delete vehicle with existing history. "
+                    "Mark it as Sold or Scrapped instead to preserve records."
+                ),
+            )
     await db.vehicles.delete_one({"id": vid})
-    # Cascade-delete dependent records to avoid orphaned alerts/expenses
-    for coll in ("documents", "trips", "fuel_entries", "services", "repairs", "tyres",
-                 "tyre_events", "accidents", "fastag_transactions", "downtimes", "expenses"):
-        await db[coll].delete_many({"vehicle_id": vid})
     return {"ok": True}
 
 
@@ -60,7 +111,6 @@ async def vehicle_summary(vid: str, user=Depends(require_user)):
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
-    # Latest expiry per document type
     docs = await db.documents.find({"vehicle_id": vid}, {"_id": 0}).to_list(500)
     expiries = {}
     for d in docs:
@@ -69,7 +119,6 @@ async def vehicle_summary(vid: str, user=Depends(require_user)):
             if t not in expiries or d["expiry_date"] > expiries[t]:
                 expiries[t] = d["expiry_date"]
 
-    # Latest service due
     latest_service = await db.services.find({"vehicle_id": vid}, {"_id": 0}).sort("date", -1).to_list(1)
     next_due_date = latest_service[0].get("next_due_date") if latest_service else None
     next_due_km = latest_service[0].get("next_due_km") if latest_service else None
@@ -109,23 +158,36 @@ async def vehicle_summary(vid: str, user=Depends(require_user)):
 
 
 # ---------- Drivers ----------
+async def _enrich_drivers(drivers, vmap):
+    for d in drivers:
+        if d.get("assigned_vehicle_id"):
+            d["assigned_vehicle_number"] = vmap.get(d["assigned_vehicle_id"], "")
+    return drivers
+
+
+# IMPORTANT: define /drivers/active BEFORE any /drivers/{did} routes so FastAPI matches it first.
+@router.get("/drivers/active")
+async def list_active_drivers(user=Depends(require_user)):
+    """Active + on_leave drivers — for dropdowns in trip/fuel/accident forms."""
+    drivers = await db.drivers.find(
+        {"status": {"$in": DRIVER_ACTIVE_STATUSES}}, {"_id": 0}
+    ).sort("name", 1).to_list(3000)
+    vmap = {v["id"]: v.get("vehicle_number", "") for v in await db.vehicles.find({}, {"_id": 0, "id": 1, "vehicle_number": 1}).to_list(3000)}
+    return await _enrich_drivers(drivers, vmap)
+
+
 @router.get("/drivers")
 async def list_drivers(request: Request, user=Depends(require_user)):
     p = dict(request.query_params)
     vmap = {v["id"]: v.get("vehicle_number", "") for v in await db.vehicles.find({}, {"_id": 0, "id": 1, "vehicle_number": 1}).to_list(3000)}
     if p.get("all") == "true":
         drivers = await db.drivers.find({}, {"_id": 0}).sort("name", 1).to_list(3000)
-        for d in drivers:
-            if d.get("assigned_vehicle_id"):
-                d["assigned_vehicle_number"] = vmap.get(d["assigned_vehicle_id"], "")
-        return drivers
+        return await _enrich_drivers(drivers, vmap)
     page = max(int(p.get("page", 1)), 1)
     page_size = min(max(int(p.get("page_size", 25)), 1), 200)
     total = await db.drivers.count_documents({})
     drivers = await db.drivers.find({}, {"_id": 0}).sort("name", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
-    for d in drivers:
-        if d.get("assigned_vehicle_id"):
-            d["assigned_vehicle_number"] = vmap.get(d["assigned_vehicle_id"], "")
+    drivers = await _enrich_drivers(drivers, vmap)
     return {"items": drivers, "total": total, "page": page, "page_size": page_size}
 
 
@@ -142,6 +204,23 @@ async def create_driver(payload: DriverCreate, user=Depends(require_user)):
 @router.put("/drivers/{did}")
 async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin"))):
     payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at")}
+    existing = await db.drivers.find_one({"id": did}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    new_status = payload.get("status")
+    is_exiting = (
+        new_status in DRIVER_EXIT_STATUSES
+        and existing.get("status") not in DRIVER_EXIT_STATUSES
+    )
+    if is_exiting:
+        if user.get("role") not in ("management", "admin"):
+            raise HTTPException(status_code=403, detail="Only Management or Admin can mark a driver as Resigned or Terminated")
+        if not payload.get("exit_date"):
+            payload["exit_date"] = today_iso()
+        # Auto-unassign vehicle
+        payload["assigned_vehicle_id"] = None
+
     res = await db.drivers.update_one({"id": did}, {"$set": payload})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Driver not found")
@@ -150,6 +229,18 @@ async def update_driver(did: str, payload: dict = Body(...), user=Depends(requir
 
 @router.delete("/drivers/{did}")
 async def delete_driver(did: str, user=Depends(require_role("admin"))):
+    existing = await db.drivers.find_one({"id": did}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    for coll in DRIVER_HISTORY_COLLECTIONS:
+        if await db[coll].count_documents({"driver_id": did}, limit=1):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Cannot delete driver with existing trips, fuel entries or accidents. "
+                    "Mark them as Resigned or Terminated instead to preserve records."
+                ),
+            )
     await db.drivers.delete_one({"id": did})
     return {"ok": True}
 

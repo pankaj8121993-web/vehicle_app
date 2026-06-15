@@ -5,9 +5,9 @@ import { canEdit } from "@/lib/permissions";
 import { toast } from "sonner";
 import { Loader2, ImagePlus, Trash2, Camera } from "lucide-react";
 
-export const VehiclePhotos = ({ vehicleId, photoIds }) => {
+export const VehiclePhotos = ({ vehicleId, photoIds, readOnly = false }) => {
   const { user } = useAuth();
-  const editable = canEdit(user?.role);
+  const editable = !readOnly && canEdit(user?.role);
   const [ids, setIds] = useState(photoIds || []);
   const [urls, setUrls] = useState({});
   const [uploading, setUploading] = useState(false);

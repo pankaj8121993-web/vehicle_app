@@ -7,6 +7,8 @@ from helpers import gather_expenses, get_lookup_maps
 
 router = APIRouter(tags=["analytics"])
 
+DISPOSED_STATUSES = ["sold", "scrapped"]
+
 
 def today_str():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -16,11 +18,21 @@ def month_start_str():
     return datetime.now(timezone.utc).strftime("%Y-%m-01")
 
 
-async def latest_doc_expiries():
-    """Latest expiry per (vehicle_id, doc_type)."""
+async def active_vehicle_ids():
+    """Set of vehicle IDs that are NOT sold/scrapped (used to exclude disposed everywhere)."""
+    vs = await db.vehicles.find(
+        {"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0, "id": 1}
+    ).to_list(3000)
+    return {v["id"] for v in vs}
+
+
+async def latest_doc_expiries(active_ids=None):
+    """Latest expiry per (vehicle_id, doc_type). Optionally limited to active vehicles."""
     docs = await db.documents.find({"expiry_date": {"$ne": None}}, {"_id": 0}).to_list(5000)
     latest = {}
     for d in docs:
+        if active_ids is not None and d["vehicle_id"] not in active_ids:
+            continue
         key = (d["vehicle_id"], d["doc_type"])
         if key not in latest or (d.get("expiry_date") or "") > (latest[key].get("expiry_date") or ""):
             latest[key] = d
@@ -31,9 +43,12 @@ async def compute_alerts():
     alerts = []
     today = today_str()
     in_30 = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
+    active_ids = await active_vehicle_ids()
     vmap, _ = await get_lookup_maps()
+    # Restrict vmap to active (non-disposed) vehicles only for alerts
+    vmap = {k: v for k, v in vmap.items() if k in active_ids}
 
-    latest = await latest_doc_expiries()
+    latest = await latest_doc_expiries(active_ids=active_ids)
     for (vid, dtype), d in latest.items():
         if vid not in vmap:
             continue  # skip orphaned records of deleted vehicles
@@ -46,7 +61,10 @@ async def compute_alerts():
             alerts.append({"type": "document_expiring", "severity": "warning",
                            "message": f"{dtype} expiring for {vnum}", "vehicle_number": vnum, "due_date": exp})
 
-    drivers = await db.drivers.find({"license_expiry": {"$ne": None}}, {"_id": 0}).to_list(2000)
+    drivers = await db.drivers.find({
+        "license_expiry": {"$ne": None},
+        "status": {"$nin": ["resigned", "terminated"]},
+    }, {"_id": 0}).to_list(2000)
     for dr in drivers:
         exp = dr["license_expiry"]
         if exp < today:
@@ -56,8 +74,8 @@ async def compute_alerts():
             alerts.append({"type": "license_expiring", "severity": "warning",
                            "message": f"License expiring — {dr['name']}", "vehicle_number": "", "due_date": exp})
 
-    # Service due / overdue based on latest service per vehicle
-    vehicles = await db.vehicles.find({}, {"_id": 0}).to_list(2000)
+    # Service due / overdue based on latest service per vehicle (active vehicles only)
+    vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0}).to_list(2000)
     in_7 = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
     for v in vehicles:
         latest_svc = await db.services.find({"vehicle_id": v["id"]}, {"_id": 0}).sort("date", -1).to_list(1)
@@ -87,7 +105,6 @@ async def compute_alerts():
         alerts.append({"type": "repair_pending_approval", "severity": "warning",
                        "message": f"Repair pending approval — {vmap.get(r['vehicle_id'], '')}: {r.get('issue', '')}",
                        "vehicle_number": vmap.get(r["vehicle_id"], ""), "due_date": r.get("date")})
-
     order = {"danger": 0, "warning": 1}
     alerts.sort(key=lambda a: (order.get(a["severity"], 2), a.get("due_date") or "9999"))
     return alerts
@@ -103,51 +120,58 @@ async def dashboard(user=Depends(require_user)):
     today = today_str()
     in_30 = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
     month_start = month_start_str()
-    vehicles = await db.vehicles.find({}, {"_id": 0}).to_list(2000)
+    vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0}).to_list(2000)
     vmap = {v["id"]: v.get("vehicle_number", "") for v in vehicles}
+    active_ids = set(vmap.keys())
     total_vehicles = len(vehicles)
 
-    latest = await latest_doc_expiries()
+    latest = await latest_doc_expiries(active_ids=active_ids)
     docs_expired = sum(1 for d in latest.values() if d["expiry_date"] < today)
     docs_expiring = sum(1 for d in latest.values() if today <= d["expiry_date"] <= in_30)
-    licenses_expiring = await db.drivers.count_documents({"license_expiry": {"$gte": today, "$lte": in_30}})
+    licenses_expiring = await db.drivers.count_documents({
+        "license_expiry": {"$gte": today, "$lte": in_30},
+        "status": {"$nin": ["resigned", "terminated"]},
+    })
 
-    trips_today = await db.trips.find({"date": today}, {"_id": 0}).to_list(2000)
+    trips_today = await db.trips.find({"date": today, "vehicle_id": {"$in": list(active_ids)}}, {"_id": 0}).to_list(2000)
     running_today = len(set(t["vehicle_id"] for t in trips_today))
-    active_trips = await db.trips.count_documents({"status": "ongoing"})
+    active_trips = await db.trips.count_documents({"status": "ongoing", "vehicle_id": {"$in": list(active_ids)}})
     under_repair_ids = set(r["vehicle_id"] for r in await db.repairs.find(
-        {"status": {"$in": ["reported", "approved", "in_repair"]}}, {"_id": 0, "vehicle_id": 1}).to_list(2000))
+        {"status": {"$in": ["reported", "approved", "in_repair"]}, "vehicle_id": {"$in": list(active_ids)}},
+        {"_id": 0, "vehicle_id": 1}).to_list(2000))
     under_repair_ids |= set(v["id"] for v in vehicles if v.get("status") == "under_repair")
     vehicles_idle = max(total_vehicles - running_today - len(under_repair_ids), 0)
 
-    month_fuel = await db.fuel_entries.find({"date": {"$gte": month_start}}, {"_id": 0}).to_list(5000)
+    month_fuel = await db.fuel_entries.find({"date": {"$gte": month_start}, "vehicle_id": {"$in": list(active_ids)}}, {"_id": 0}).to_list(5000)
     fuel_cost_month = round(sum(f.get("amount") or 0 for f in month_fuel), 2)
-    all_mileages = [f["mileage"] for f in await db.fuel_entries.find({"mileage": {"$ne": None}}, {"_id": 0}).to_list(5000)]
+    all_mileages = [f["mileage"] for f in await db.fuel_entries.find(
+        {"mileage": {"$ne": None}, "vehicle_id": {"$in": list(active_ids)}}, {"_id": 0}).to_list(5000)]
     avg_mileage = round(sum(all_mileages) / len(all_mileages), 2) if all_mileages else None
     fuel_by_vehicle = {}
     for f in month_fuel:
         fuel_by_vehicle[f["vehicle_id"]] = fuel_by_vehicle.get(f["vehicle_id"], 0) + (f.get("amount") or 0)
     top_fuel = sorted(fuel_by_vehicle.items(), key=lambda x: -x[1])[:5]
-    top_fuel = [{"vehicle_number": vmap.get(k, ""), "amount": round(v, 2)} for k, v in top_fuel]
+    top_fuel = [{"vehicle_id": k, "vehicle_number": vmap.get(k, ""), "amount": round(v, 2)} for k, v in top_fuel]
 
     alerts = await compute_alerts()
     service_due = sum(1 for a in alerts if a["type"] == "service_due")
     service_overdue = sum(1 for a in alerts if a["type"] == "service_overdue")
     ninety_days_ago = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
     repair_counts = {}
-    for r in await db.repairs.find({"date": {"$gte": ninety_days_ago}}, {"_id": 0}).to_list(5000):
+    for r in await db.repairs.find({"date": {"$gte": ninety_days_ago}, "vehicle_id": {"$in": list(active_ids)}}, {"_id": 0}).to_list(5000):
         repair_counts[r["vehicle_id"]] = repair_counts.get(r["vehicle_id"], 0) + 1
-    frequent_repairs = [{"vehicle_number": vmap.get(k, ""), "count": c} for k, c in sorted(repair_counts.items(), key=lambda x: -x[1]) if c >= 3][:5]
+    frequent_repairs = [{"vehicle_id": k, "vehicle_number": vmap.get(k, ""), "count": c} for k, c in sorted(repair_counts.items(), key=lambda x: -x[1]) if c >= 3][:5]
 
     month_expenses = await gather_expenses(start_date=month_start)
+    month_expenses = [r for r in month_expenses if r.get("vehicle_id") in active_ids]
     monthly_cost = round(sum(r["amount"] for r in month_expenses), 2)
-    month_trips = await db.trips.find({"date": {"$gte": month_start}}, {"_id": 0}).to_list(5000)
+    month_trips = await db.trips.find({"date": {"$gte": month_start}, "vehicle_id": {"$in": list(active_ids)}}, {"_id": 0}).to_list(5000)
     month_km = sum(t.get("distance") or 0 for t in month_trips)
     cost_per_km = round(monthly_cost / month_km, 2) if month_km else None
     cost_by_vehicle = {}
     for r in month_expenses:
         cost_by_vehicle[r["vehicle_id"]] = cost_by_vehicle.get(r["vehicle_id"], 0) + r["amount"]
-    top_cost = [{"vehicle_number": vmap.get(k, ""), "amount": round(v, 2)} for k, v in sorted(cost_by_vehicle.items(), key=lambda x: -x[1])[:5]]
+    top_cost = [{"vehicle_id": k, "vehicle_number": vmap.get(k, ""), "amount": round(v, 2)} for k, v in sorted(cost_by_vehicle.items(), key=lambda x: -x[1])[:5]]
 
     return {
         "compliance": {"total_vehicles": total_vehicles, "docs_expiring_30": docs_expiring,
@@ -163,7 +187,7 @@ async def dashboard(user=Depends(require_user)):
 
 @router.get("/dashboard/trends")
 async def dashboard_trends(user=Depends(require_user)):
-    """Last 6 months: operating cost, KM run and fuel cost per month."""
+    """Last 6 months: operating cost, KM run and fuel cost per month (excludes sold/scrapped vehicles)."""
     now = datetime.now(timezone.utc)
     months = []
     y, m = now.year, now.month
@@ -174,9 +198,11 @@ async def dashboard_trends(user=Depends(require_user)):
             yy -= 1
         months.append(f"{yy:04d}-{mm:02d}")
     start = months[0] + "-01"
+    active_ids = await active_vehicle_ids()
     expenses = await gather_expenses(start_date=start)
-    trips = await db.trips.find({"date": {"$gte": start}}, {"_id": 0}).to_list(10000)
-    fuel = await db.fuel_entries.find({"date": {"$gte": start}}, {"_id": 0}).to_list(10000)
+    expenses = [r for r in expenses if r.get("vehicle_id") in active_ids]
+    trips = await db.trips.find({"date": {"$gte": start}, "vehicle_id": {"$in": list(active_ids)}}, {"_id": 0}).to_list(10000)
+    fuel = await db.fuel_entries.find({"date": {"$gte": start}, "vehicle_id": {"$in": list(active_ids)}}, {"_id": 0}).to_list(10000)
     data = []
     for mo in months:
         data.append({

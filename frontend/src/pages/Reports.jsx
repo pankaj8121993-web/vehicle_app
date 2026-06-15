@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, FileSpreadsheet, FileText, Play } from "lucide-react";
+import { Loader2, FileSpreadsheet, FileText, Play, Printer } from "lucide-react";
 
 export default function Reports() {
   const [reports, setReports] = useState([]);
@@ -64,7 +64,7 @@ export default function Reports() {
     <div data-testid="reports-page">
       <PageHeader title="Reports & Analytics" subtitle="Filter by date, vehicle or driver — export to Excel or PDF" />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 border border-slate-200 bg-white p-5 md:grid-cols-3 xl:grid-cols-6">
+      <div className="reports-filters-container mb-6 grid grid-cols-1 gap-4 border border-slate-200 bg-white p-5 md:grid-cols-3 xl:grid-cols-6">
         <div className="space-y-1.5 md:col-span-2">
           <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Report</Label>
           <Select value={key} onValueChange={(v) => { setKey(v); setResult(null); }}>
@@ -104,7 +104,7 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="mb-6 flex flex-wrap gap-3">
+      <div className="reports-filters-container mb-6 flex flex-wrap gap-3">
         <Button data-testid="run-report-btn" onClick={run} disabled={loading} className="rounded-none bg-slate-900 text-white hover:bg-slate-800">
           {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />} Generate Report
         </Button>
@@ -113,6 +113,9 @@ export default function Reports() {
         </Button>
         <Button data-testid="export-pdf-btn" variant="outline" onClick={() => exportFile("pdf")} disabled={!!exporting} className="rounded-none border-red-300 text-red-700 hover:bg-red-50">
           {exporting === "pdf" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />} Export PDF
+        </Button>
+        <Button data-testid="report-print-btn" variant="outline" onClick={() => window.print()} disabled={!result} className="rounded-none border-slate-300 text-slate-700 hover:bg-slate-50">
+          <Printer className="mr-2 h-4 w-4" /> Print
         </Button>
       </div>
 

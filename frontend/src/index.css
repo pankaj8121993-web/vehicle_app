@@ -95,3 +95,85 @@ code, .font-mono {
         border-bottom-color: inherit;
     }
 }
+
+/* ---- Print styles for Reports ---- */
+@media print {
+    @page {
+        size: A4 landscape;
+        margin: 12mm;
+    }
+
+    body {
+        background: #ffffff !important;
+    }
+
+    /* Hide chrome */
+    aside,
+    header,
+    .reports-filters-container,
+    button {
+        display: none !important;
+    }
+
+    main,
+    [data-testid="reports-page"] {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Make sidebar offset disappear */
+    .lg\:pl-56 {
+        padding-left: 0 !important;
+    }
+
+    /* Print header */
+    [data-testid="reports-page"]::before {
+        content: "Rajguru Foods — Fleet Report";
+        display: block;
+        font-family: "Chivo", sans-serif;
+        font-size: 16pt;
+        font-weight: 900;
+        border-bottom: 2px solid #0f172a;
+        padding-bottom: 6pt;
+        margin-bottom: 8pt;
+    }
+
+    [data-testid="report-result-table"] {
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="report-result-table"] table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 9pt;
+    }
+
+    [data-testid="report-result-table"] thead {
+        display: table-header-group; /* repeat headers on each page */
+    }
+
+    [data-testid="report-result-table"] thead tr {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    [data-testid="report-result-table"] th {
+        color: #ffffff !important;
+        background: #0f172a !important;
+        padding: 4pt 6pt;
+        text-align: left;
+    }
+
+    [data-testid="report-result-table"] td {
+        padding: 3pt 6pt;
+        border-bottom: 0.4pt solid #cbd5e1;
+        page-break-inside: avoid;
+    }
+
+    [data-testid="report-result-table"] tbody tr {
+        page-break-inside: avoid;
+    }
+}

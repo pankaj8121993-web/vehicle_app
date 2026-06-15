@@ -13,7 +13,7 @@ import {
 } from "@/lib/configs";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { Loader2, ArrowLeft, Archive } from "lucide-react";
 
 const Stat = ({ label, children, testId }) => (
   <div className="border border-slate-200 bg-white p-4" data-testid={testId}>
@@ -56,12 +56,34 @@ export default function VehicleProfile() {
   const v = summary.vehicle;
   const exp = summary.document_expiries || {};
   const ff = { vehicle_id: id };
+  const isDisposed = ["sold", "scrapped"].includes(v.status);
 
   return (
     <div data-testid="vehicle-profile-page">
       <Button variant="ghost" size="sm" onClick={() => navigate("/vehicles")} className="mb-4 -ml-2 text-slate-500 hover:text-slate-900" data-testid="back-to-vehicles">
         <ArrowLeft className="mr-1 h-4 w-4" /> All Vehicles
       </Button>
+
+      {isDisposed && (
+        <div
+          className={`mb-6 flex flex-wrap items-start gap-3 border-l-4 p-4 ${v.status === "scrapped" ? "border-red-500 bg-red-50" : "border-slate-700 bg-slate-100"}`}
+          data-testid="disposal-banner"
+        >
+          <Archive className="mt-0.5 h-5 w-5 text-slate-700" />
+          <div className="flex-1 min-w-[260px]">
+            <p className="text-sm font-bold uppercase tracking-[0.08em] text-slate-800">
+              This vehicle has been {v.status === "scrapped" ? "SCRAPPED" : "SOLD"} — records are read-only
+            </p>
+            <div className="mt-1 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-slate-600 md:grid-cols-2 xl:grid-cols-4">
+              {v.disposal_date && <p><span className="font-semibold">Disposal Date:</span> <span className="font-mono">{fmtDate(v.disposal_date)}</span></p>}
+              {v.sale_value !== null && v.sale_value !== undefined && <p><span className="font-semibold">Sale Value:</span> <span className="font-mono">{fmtINR(v.sale_value)}</span></p>}
+              {v.buyer_name && <p><span className="font-semibold">Buyer:</span> {v.buyer_name}</p>}
+              {v.buyer_contact && <p><span className="font-semibold">Contact:</span> <span className="font-mono">{v.buyer_contact}</span></p>}
+            </div>
+            {v.disposal_remarks && <p className="mt-1 text-xs text-slate-700">{v.disposal_remarks}</p>}
+          </div>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -113,21 +135,21 @@ export default function VehicleProfile() {
         </TabsList>
 
         <div className="mt-5">
-          <TabsContent value="photos"><VehiclePhotos vehicleId={id} photoIds={v.photo_file_ids || []} /></TabsContent>
-          <TabsContent value="documents"><CrudModule {...documentConfig} fixedFilters={ff} testIdPrefix="vp-documents" /></TabsContent>
-          <TabsContent value="trips"><CrudModule {...tripConfig} fixedFilters={ff} rowActions={CloseTripAction} testIdPrefix="vp-trips" /></TabsContent>
-          <TabsContent value="fuel"><CrudModule {...fuelConfig} fixedFilters={ff} testIdPrefix="vp-fuel" /></TabsContent>
-          <TabsContent value="services"><CrudModule {...serviceConfig} fixedFilters={ff} testIdPrefix="vp-services" /></TabsContent>
-          <TabsContent value="repairs"><CrudModule {...repairConfig} fixedFilters={ff} rowActions={RepairWorkflowAction} testIdPrefix="vp-repairs" /></TabsContent>
+          <TabsContent value="photos"><VehiclePhotos vehicleId={id} photoIds={v.photo_file_ids || []} readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="documents"><CrudModule {...documentConfig} fixedFilters={ff} testIdPrefix="vp-documents" readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="trips"><CrudModule {...tripConfig} fixedFilters={ff} rowActions={isDisposed ? undefined : CloseTripAction} testIdPrefix="vp-trips" readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="fuel"><CrudModule {...fuelConfig} fixedFilters={ff} testIdPrefix="vp-fuel" readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="services"><CrudModule {...serviceConfig} fixedFilters={ff} testIdPrefix="vp-services" readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="repairs"><CrudModule {...repairConfig} fixedFilters={ff} rowActions={isDisposed ? undefined : RepairWorkflowAction} testIdPrefix="vp-repairs" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="tyres">
-            <CrudModule {...tyreConfig} fixedFilters={ff} testIdPrefix="vp-tyres" />
+            <CrudModule {...tyreConfig} fixedFilters={ff} testIdPrefix="vp-tyres" readOnly={isDisposed} />
             <h3 className="mb-3 mt-8 text-base font-bold uppercase tracking-tight text-slate-800">Tyre Events</h3>
-            <CrudModule {...tyreEventConfig} fixedFilters={ff} testIdPrefix="vp-tyre-events" />
+            <CrudModule {...tyreEventConfig} fixedFilters={ff} testIdPrefix="vp-tyre-events" readOnly={isDisposed} />
           </TabsContent>
-          <TabsContent value="accidents"><CrudModule {...accidentConfig} fixedFilters={ff} testIdPrefix="vp-accidents" /></TabsContent>
-          <TabsContent value="fastag"><CrudModule {...fastagConfig} fixedFilters={ff} testIdPrefix="vp-fastag" /></TabsContent>
+          <TabsContent value="accidents"><CrudModule {...accidentConfig} fixedFilters={ff} testIdPrefix="vp-accidents" readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="fastag"><CrudModule {...fastagConfig} fixedFilters={ff} testIdPrefix="vp-fastag" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="expenses"><ExpenseLedger vehicleId={id} /></TabsContent>
-          <TabsContent value="downtime"><CrudModule {...downtimeConfig} fixedFilters={ff} testIdPrefix="vp-downtime" /></TabsContent>
+          <TabsContent value="downtime"><CrudModule {...downtimeConfig} fixedFilters={ff} testIdPrefix="vp-downtime" readOnly={isDisposed} /></TabsContent>
         </div>
       </Tabs>
     </div>

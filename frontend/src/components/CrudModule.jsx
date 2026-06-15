@@ -73,6 +73,7 @@ const FieldInput = ({ field, value, onChange, options }) => {
 export const CrudModule = ({
   title, endpoint, columns, fields, fixedFilters = {},
   onRowClick, rowActions, addLabel, testIdPrefix, emptyText, refreshKey,
+  readOnly = false,
 }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,7 +127,7 @@ export const CrudModule = ({
           next.vehicle = r.data.map((v) => ({ value: v.id, label: v.vehicle_number }));
         }
         if (neededOptionTypes.includes("driver")) {
-          const r = await api.get("/drivers", { params: { all: "true" } });
+          const r = await api.get("/drivers/active");
           next.driver = r.data.map((d) => ({ value: d.id, label: d.name }));
         }
         if (neededOptionTypes.includes("tyre")) {
@@ -218,7 +219,7 @@ export const CrudModule = ({
             className="w-64 rounded-none pl-9"
           />
         </div>
-        {canCreate(role, endpoint) && (
+        {!readOnly && canCreate(role, endpoint) && (
           <Button data-testid={`${prefix}-add-btn`} onClick={openAdd} className="rounded-none bg-slate-900 text-white hover:bg-slate-800">
             <Plus className="mr-1 h-4 w-4" /> {addLabel || `Add ${title}`}
           </Button>
@@ -258,12 +259,12 @@ export const CrudModule = ({
                   <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       {rowActions && rowActions(row, refresh)}
-                      {canEdit(role) && (
+                      {!readOnly && canEdit(role) && (
                         <Button data-testid={`${prefix}-edit-${row.id}`} variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(row)}>
                           <Pencil className="h-3.5 w-3.5 text-slate-500" />
                         </Button>
                       )}
-                      {canDelete(role) && (
+                      {!readOnly && canDelete(role) && (
                         <Button data-testid={`${prefix}-delete-${row.id}`} variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setDeleteTarget(row)}>
                           <Trash2 className="h-3.5 w-3.5 text-red-500" />
                         </Button>

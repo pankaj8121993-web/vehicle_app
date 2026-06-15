@@ -19,6 +19,12 @@ class VehicleCreate(BaseModel):
     fastag_balance: Optional[float] = 0
     photo_file_ids: Optional[List[str]] = []
     notes: Optional[str] = None
+    # Disposal fields (Phase 1)
+    disposal_date: Optional[str] = None
+    sale_value: Optional[float] = None
+    buyer_name: Optional[str] = None
+    buyer_contact: Optional[str] = None
+    disposal_remarks: Optional[str] = None
 
 
 class DriverCreate(BaseModel):
@@ -31,6 +37,9 @@ class DriverCreate(BaseModel):
     assigned_vehicle_id: Optional[str] = None
     status: Optional[str] = "active"
     photo_file_id: Optional[str] = None
+    # Exit management fields (Phase 1)
+    exit_date: Optional[str] = None
+    exit_reason: Optional[str] = None
 
 
 class DocumentCreate(BaseModel):

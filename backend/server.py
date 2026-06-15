@@ -9,6 +9,7 @@ import routes_core
 import routes_ops
 import routes_assets
 import routes_analytics
+import routes_drilldowns
 from storage import init_storage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -29,6 +30,7 @@ api_router.include_router(routes_core.router)
 api_router.include_router(routes_ops.router)
 api_router.include_router(routes_assets.router)
 api_router.include_router(routes_analytics.router)
+api_router.include_router(routes_drilldowns.router)
 
 app.include_router(api_router)
 
