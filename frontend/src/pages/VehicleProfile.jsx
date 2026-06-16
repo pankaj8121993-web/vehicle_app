@@ -10,6 +10,7 @@ import { VehiclePhotos } from "@/components/VehiclePhotos";
 import {
   documentConfig, tripConfig, fuelConfig, serviceConfig, repairConfig,
   tyreConfig, tyreEventConfig, accidentConfig, downtimeConfig, fastagConfig,
+  greasingConfig,
 } from "@/lib/configs";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ const TABS = [
   { value: "trips", label: "Trips" },
   { value: "fuel", label: "Fuel" },
   { value: "services", label: "Service" },
+  { value: "greasing", label: "Greasing" },
   { value: "repairs", label: "Repairs" },
   { value: "tyres", label: "Tyres" },
   { value: "accidents", label: "Accidents" },
@@ -140,6 +142,7 @@ export default function VehicleProfile() {
           <TabsContent value="trips"><CrudModule {...tripConfig} fixedFilters={ff} rowActions={isDisposed ? undefined : CloseTripAction} testIdPrefix="vp-trips" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="fuel"><CrudModule {...fuelConfig} fixedFilters={ff} testIdPrefix="vp-fuel" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="services"><CrudModule {...serviceConfig} fixedFilters={ff} testIdPrefix="vp-services" readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="greasing"><CrudModule {...greasingConfig} fixedFilters={ff} testIdPrefix="vp-greasing" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="repairs"><CrudModule {...repairConfig} fixedFilters={ff} rowActions={isDisposed ? undefined : RepairWorkflowAction} testIdPrefix="vp-repairs" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="tyres">
             <CrudModule {...tyreConfig} fixedFilters={ff} testIdPrefix="vp-tyres" readOnly={isDisposed} />

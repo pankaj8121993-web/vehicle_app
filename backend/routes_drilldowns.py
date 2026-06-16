@@ -277,3 +277,42 @@ async def active_trips(user=Depends(require_user)):
             "opening_km": t.get("opening_km"),
         })
     return rows
+
+
+@router.get("/greasing_due")
+async def greasing_due(window: str = "due_or_overdue", user=Depends(require_user)):
+    """Greasing due/overdue list — mirror of service_due, reads from `greasings` collection."""
+    today = _today()
+    in_15 = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")
+    vmap = await _active_vehicle_map()
+    rows = []
+    for vid, v in vmap.items():
+        latest = await db.greasings.find({"vehicle_id": vid}, {"_id": 0}).sort("date", -1).to_list(1)
+        if not latest:
+            continue
+        g = latest[0]
+        due_date = g.get("next_due_date")
+        due_km = g.get("next_due_km")
+        odo = v.get("current_odometer") or 0
+        is_overdue = (due_date and due_date < today) or (due_km and odo >= due_km)
+        is_due_soon = due_date and today <= due_date <= in_15 and not is_overdue
+        match = False
+        if window == "overdue":
+            match = is_overdue
+        elif window == "due_soon":
+            match = is_due_soon
+        else:
+            match = is_overdue or is_due_soon
+        if not match:
+            continue
+        rows.append({
+            "vehicle_id": vid,
+            "vehicle_number": v.get("vehicle_number", ""),
+            "last_greasing_date": g.get("date"),
+            "next_due_date": due_date,
+            "next_due_km": due_km,
+            "current_odometer": odo,
+            "status": "OVERDUE" if is_overdue else "DUE SOON",
+        })
+    rows.sort(key=lambda r: r["next_due_date"] or "9999")
+    return rows

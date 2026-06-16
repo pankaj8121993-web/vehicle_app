@@ -91,6 +91,10 @@ async def gather_expenses(vehicle_id=None, start_date=None, end_date=None):
     for s in await db.services.find(q(), {"_id": 0}).to_list(5000):
         rows.append({"date": s.get("date"), "vehicle_id": s["vehicle_id"], "category": "Service",
                      "amount": s.get("cost") or 0, "description": s.get("service_type") or "Service"})
+    for g in await db.greasings.find(q(), {"_id": 0}).to_list(5000):
+        if g.get("cost"):
+            rows.append({"date": g.get("date"), "vehicle_id": g["vehicle_id"], "category": "Greasing",
+                         "amount": g.get("cost") or 0, "description": "Greasing"})
     for r in await db.repairs.find(q(), {"_id": 0}).to_list(5000):
         rows.append({"date": r.get("date"), "vehicle_id": r["vehicle_id"], "category": "Repair",
                      "amount": r.get("cost") or 0, "description": r.get("issue") or "Repair"})

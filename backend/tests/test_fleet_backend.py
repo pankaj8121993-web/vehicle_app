@@ -546,6 +546,127 @@ class TestDrilldowns:
                 requests.delete(f"{API}/documents/{doc_id}", headers=h("admin"))
             requests.delete(f"{API}/vehicles/{vid}", headers=h("admin"))
 
+    def test_licenses_expiring_excludes_resigned(self):
+        from datetime import datetime, timedelta
+        expiry = (datetime.utcnow() + timedelta(days=10)).strftime("%Y-%m-%d")
+        payload = {"name": f"TEST_LIC_{uuid.uuid4().hex[:6]}",
+                   "mobile": "9999999999", "license_number": "LIC123",
+                   "license_expiry": expiry}
+        r = requests.post(f"{API}/drivers", headers=h("admin"), json=payload)
+        did = r.json()["id"]
+        try:
+            r1 = requests.get(f"{API}/drilldowns/licenses_expiring?days=30",
+                              headers=h("admin"))
+            assert did in [d["driver_id"] for d in r1.json()]
+            requests.put(f"{API}/drivers/{did}", headers=h("admin"),
+                         json={"status": "resigned"})
+            r2 = requests.get(f"{API}/drilldowns/licenses_expiring?days=30",
+                              headers=h("admin"))
+            assert did not in [d["driver_id"] for d in r2.json()]
+        finally:
+            requests.delete(f"{API}/drivers/{did}", headers=h("admin"))
+
+
+# ---------------- Phase 1.5: Greasing module + downtime auto-close ----------------
+class TestGreasing:
+    def test_greasing_crud(self):
+        payload = {"vehicle_id": SEEDED_VEHICLE_ID, "date": "2026-02-01",
+                   "odometer": 12000, "responsible_person": "TEST_PERSON",
+                   "cost": 250, "next_due_date": "2026-05-01", "next_due_km": 18000}
+        r = requests.post(f"{API}/greasings", headers=h("admin"), json=payload)
+        assert r.status_code in (200, 201), r.text
+        gid = r.json()["id"]
+        try:
+            r2 = requests.get(f"{API}/greasings?page=1&page_size=25", headers=h("admin"))
+            assert r2.status_code == 200
+            assert {"items", "total", "page", "page_size"}.issubset(r2.json().keys())
+            # Driver can NOT create greasing (driver_can_create=False)
+            r3 = requests.post(f"{API}/greasings", headers=h("driver"), json=payload)
+            assert r3.status_code == 403
+            # data_entry can edit
+            r4 = requests.put(f"{API}/greasings/{gid}", headers=h("data_entry"),
+                              json={"cost": 300})
+            assert r4.status_code == 200
+            assert r4.json()["cost"] == 300
+        finally:
+            requests.delete(f"{API}/greasings/{gid}", headers=h("admin"))
+
+    def test_greasing_dashboard_widgets(self):
+        r = requests.get(f"{API}/dashboard", headers=h("admin"))
+        assert r.status_code == 200
+        m = r.json()["maintenance"]
+        assert "greasing_due" in m and "greasing_overdue" in m
+
+    def test_greasing_due_drilldown(self):
+        r = requests.get(f"{API}/drilldowns/greasing_due?window=due_or_overdue", headers=h("admin"))
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_greasing_reports(self):
+        r = requests.get(f"{API}/reports", headers=h("admin"))
+        keys = [x["key"] for x in r.json()]
+        assert "greasing" in keys and "greasing_due" in keys
+        # Get the report works
+        r2 = requests.get(f"{API}/reports/greasing", headers=h("admin"))
+        assert r2.status_code == 200
+        assert "columns" in r2.json() and "rows" in r2.json()
+
+
+class TestDowntimeDisposalAutoClose:
+    def test_disposal_closes_downtimes_with_days_set(self):
+        # Create vehicle, create open downtime 10 days ago, dispose today
+        from datetime import datetime, timedelta, timezone
+        v_payload = {"vehicle_number": f"TEST_DT_{uuid.uuid4().hex[:6]}",
+                     "vtype": "Truck", "make": "Tata", "model": "DT"}
+        vc = requests.post(f"{API}/vehicles", headers=h("admin"), json=v_payload)
+        vid = vc.json()["id"]
+        ten_days_ago = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        dt_id = None
+        try:
+            dt = requests.post(f"{API}/downtime", headers=h("admin"), json={
+                "vehicle_id": vid, "reason": "service", "start_date": ten_days_ago,
+            })
+            assert dt.status_code in (200, 201)
+            dt_id = dt.json()["id"]
+            assert dt.json()["status"] == "open"
+            # Dispose vehicle
+            r = requests.put(f"{API}/vehicles/{vid}", headers=h("admin"),
+                             json={"status": "sold", "disposal_date": today})
+            assert r.status_code == 200
+            # Verify downtime is closed with days set
+            r2 = requests.get(f"{API}/downtime?all=true", headers=h("admin"))
+            assert r2.status_code == 200
+            ours = [d for d in r2.json() if d["id"] == dt_id]
+            assert len(ours) == 1
+            assert ours[0]["status"] == "closed"
+            assert ours[0]["end_date"] == today
+            assert ours[0]["days"] == 11  # 10 days inclusive
+        finally:
+            if dt_id:
+                requests.delete(f"{API}/downtime/{dt_id}", headers=h("admin"))
+            requests.delete(f"{API}/vehicles/{vid}", headers=h("admin"))
+
+
+# ---------------- Phase 1.5: Driver enrichment ----------------
+class TestDriverEnrichment:
+    def test_driver_with_employee_number_and_skills(self):
+        payload = {"name": f"TEST_ENR_{uuid.uuid4().hex[:6]}", "employee_number": "EMP-T001",
+                   "skills": ["Heavy Commercial Vehicle", "Light Commercial Vehicle"]}
+        r = requests.post(f"{API}/drivers", headers=h("admin"), json=payload)
+        assert r.status_code in (200, 201)
+        did = r.json()["id"]
+        try:
+            assert r.json()["employee_number"] == "EMP-T001"
+            assert r.json()["skills"] == ["Heavy Commercial Vehicle", "Light Commercial Vehicle"]
+            # Update skills
+            r2 = requests.put(f"{API}/drivers/{did}", headers=h("admin"),
+                              json={"skills": ["Tractor"]})
+            assert r2.status_code == 200
+            assert r2.json()["skills"] == ["Tractor"]
+        finally:
+            requests.delete(f"{API}/drivers/{did}", headers=h("admin"))
+
 
 if __name__ == "__main__":
     import sys

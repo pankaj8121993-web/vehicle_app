@@ -29,11 +29,13 @@ class VehicleCreate(BaseModel):
 
 class DriverCreate(BaseModel):
     name: str
+    employee_number: Optional[str] = None
     mobile: Optional[str] = None
     address: Optional[str] = None
     aadhaar: Optional[str] = None
     license_number: Optional[str] = None
     license_expiry: Optional[str] = None
+    skills: Optional[List[str]] = []
     assigned_vehicle_id: Optional[str] = None
     status: Optional[str] = "active"
     photo_file_id: Optional[str] = None
@@ -170,3 +172,15 @@ class ExpenseCreate(BaseModel):
     amount: float
     description: Optional[str] = None
     file_id: Optional[str] = None
+
+
+class GreasingCreate(BaseModel):
+    vehicle_id: str
+    date: str
+    odometer: Optional[float] = None
+    responsible_person: Optional[str] = None
+    cost: Optional[float] = 0
+    next_due_date: Optional[str] = None
+    next_due_km: Optional[float] = None
+    file_id: Optional[str] = None
+    notes: Optional[str] = None

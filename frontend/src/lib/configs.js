@@ -4,6 +4,16 @@
 export const SERVICE_TYPES = ["Full Service", "Minor Service", "Oil Change", "Brake Service", "Clutch Service", "Battery Service", "Other"];
 export const DOC_TYPES = ["RC", "Insurance", "Fitness", "Permit", "PUC", "Road Tax", "Fastag", "Other"];
 export const EXPENSE_CATEGORIES = ["Insurance", "Permit", "Road Tax", "Fitness", "Parking", "Driver Allowance", "Fines/Challan", "Washing", "Miscellaneous"];
+export const DRIVER_SKILLS = [
+  "Heavy Commercial Vehicle",
+  "Light Commercial Vehicle",
+  "Car",
+  "Two-Wheeler",
+  "Tractor",
+  "Three-Wheeler/Auto",
+  "Bus",
+  "JCB/Earthmover",
+];
 
 const sel = (arr) => arr.map((v) => ({ value: v, label: v }));
 
@@ -49,19 +59,23 @@ export const driverConfig = {
   endpoint: "drivers",
   columns: [
     { key: "name", label: "Name" },
+    { key: "employee_number", label: "Emp #" },
     { key: "mobile", label: "Mobile" },
     { key: "license_number", label: "License No" },
     { key: "license_expiry", label: "License Expiry", type: "expiry" },
+    { key: "skills", label: "Skills", type: "tags" },
     { key: "assigned_vehicle_number", label: "Assigned Vehicle" },
     { key: "status", label: "Status", type: "badge" },
   ],
   fields: [
     { name: "name", label: "Full Name", required: true },
+    { name: "employee_number", label: "Employee Number", required: true },
     { name: "mobile", label: "Mobile Number" },
     { name: "address", label: "Address", type: "textarea" },
     { name: "aadhaar", label: "Aadhaar Number" },
     { name: "license_number", label: "License Number" },
     { name: "license_expiry", label: "License Expiry", type: "date" },
+    { name: "skills", label: "Driver Skills", type: "multiselect", options: sel(DRIVER_SKILLS) },
     { name: "assigned_vehicle_id", label: "Assigned Vehicle", type: "vehicle" },
     { name: "status", label: "Status", type: "select", options: sel(["active", "on_leave", "resigned", "terminated"]), default: "active" },
     { name: "exit_date", label: "Exit Date (Resigned/Terminated)", type: "date" },
@@ -344,5 +358,31 @@ export const expenseConfig = {
     { name: "amount", label: "Amount", type: "number", required: true, suffix: "₹" },
     { name: "description", label: "Description" },
     { name: "file_id", label: "Invoice Upload", type: "file" },
+  ],
+};
+
+export const greasingConfig = {
+  title: "Greasing",
+  endpoint: "greasings",
+  columns: [
+    { key: "date", label: "Date", type: "date" },
+    { key: "vehicle_number", label: "Vehicle" },
+    { key: "odometer", label: "Odometer", type: "number" },
+    { key: "responsible_person", label: "Person" },
+    { key: "cost", label: "Cost", type: "currency" },
+    { key: "next_due_date", label: "Next Due", type: "expiry" },
+    { key: "next_due_km", label: "Next Due KM", type: "number" },
+    { key: "file_id", label: "Invoice", type: "file" },
+  ],
+  fields: [
+    { name: "vehicle_id", label: "Vehicle", type: "vehicle", required: true },
+    { name: "date", label: "Greasing Date", type: "date", required: true },
+    { name: "odometer", label: "Odometer", type: "number", suffix: "KM" },
+    { name: "responsible_person", label: "Person Responsible" },
+    { name: "cost", label: "Cost", type: "number", suffix: "₹", default: 0 },
+    { name: "next_due_date", label: "Next Due Date", type: "date" },
+    { name: "next_due_km", label: "Next Due KM", type: "number", suffix: "KM" },
+    { name: "file_id", label: "Invoice Upload", type: "file" },
+    { name: "notes", label: "Notes", type: "textarea" },
   ],
 };

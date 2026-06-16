@@ -183,7 +183,7 @@ export default function Dashboard() {
 
           <div>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold uppercase tracking-tight text-slate-800"><Fuel className="h-4 w-4" /> Fuel & Maintenance</h2>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
               <Metric label="Fuel Cost This Month" value={fmtINR(fuel.cost_this_month)} testId="metric-fuel-month"
                 onClick={() => openDrill({
                   title: `Top Fuel Consumers — ${month}`, endpoint: "top_fuel_consumers", params: { month },
@@ -225,6 +225,31 @@ export default function Dashboard() {
                   columns: [
                     { key: "vehicle_number", label: "Vehicle" },
                     { key: "last_service_date", label: "Last Service", type: "date" },
+                    { key: "next_due_date", label: "Next Due", type: "date" },
+                    { key: "next_due_km", label: "Next Due KM", type: "number" },
+                    { key: "current_odometer", label: "Current KM", type: "number" },
+                  ],
+                  rowLink: vehicleLink,
+                })} />
+              <Metric label="Greasing Due" value={maintenance.greasing_due} tone={maintenance.greasing_due ? "warning" : "default"} testId="metric-greasing-due"
+                onClick={() => openDrill({
+                  title: "Greasing Due Soon", endpoint: "greasing_due", params: { window: "due_soon" },
+                  columns: [
+                    { key: "vehicle_number", label: "Vehicle" },
+                    { key: "last_greasing_date", label: "Last Greasing", type: "date" },
+                    { key: "next_due_date", label: "Next Due", type: "date" },
+                    { key: "next_due_km", label: "Next Due KM", type: "number" },
+                    { key: "current_odometer", label: "Current KM", type: "number" },
+                    { key: "status", label: "Status" },
+                  ],
+                  rowLink: vehicleLink,
+                })} />
+              <Metric label="Greasing Overdue" value={maintenance.greasing_overdue} tone={maintenance.greasing_overdue ? "danger" : "default"} testId="metric-greasing-overdue"
+                onClick={() => openDrill({
+                  title: "Greasing Overdue", endpoint: "greasing_due", params: { window: "overdue" },
+                  columns: [
+                    { key: "vehicle_number", label: "Vehicle" },
+                    { key: "last_greasing_date", label: "Last Greasing", type: "date" },
                     { key: "next_due_date", label: "Next Due", type: "date" },
                     { key: "next_due_km", label: "Next Due KM", type: "number" },
                     { key: "current_odometer", label: "Current KM", type: "number" },

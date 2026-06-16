@@ -76,7 +76,7 @@ async def compute_alerts():
 
     # Service due / overdue based on latest service per vehicle (active vehicles only)
     vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0}).to_list(2000)
-    in_7 = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+    in_15 = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")
     for v in vehicles:
         latest_svc = await db.services.find({"vehicle_id": v["id"]}, {"_id": 0}).sort("date", -1).to_list(1)
         if latest_svc:
@@ -87,12 +87,28 @@ async def compute_alerts():
             if due_date and due_date < today:
                 alerts.append({"type": "service_overdue", "severity": "danger",
                                "message": f"Service OVERDUE — {v['vehicle_number']}", "vehicle_number": v["vehicle_number"], "due_date": due_date})
-            elif due_date and due_date <= in_7:
+            elif due_date and due_date <= in_15:
                 alerts.append({"type": "service_due", "severity": "warning",
-                               "message": f"Service due — {v['vehicle_number']}", "vehicle_number": v["vehicle_number"], "due_date": due_date})
+                               "message": f"Service due (within 15 days) — {v['vehicle_number']}", "vehicle_number": v["vehicle_number"], "due_date": due_date})
             elif due_km and odo >= due_km:
                 alerts.append({"type": "service_overdue", "severity": "danger",
                                "message": f"Service OVERDUE (by KM) — {v['vehicle_number']}", "vehicle_number": v["vehicle_number"], "due_date": None})
+        # Greasing alerts — same pattern as services
+        latest_gr = await db.greasings.find({"vehicle_id": v["id"]}, {"_id": 0}).sort("date", -1).to_list(1)
+        if latest_gr:
+            g = latest_gr[0]
+            g_due_date = g.get("next_due_date")
+            g_due_km = g.get("next_due_km")
+            odo = v.get("current_odometer") or 0
+            if g_due_date and g_due_date < today:
+                alerts.append({"type": "greasing_overdue", "severity": "danger",
+                               "message": f"Greasing OVERDUE — {v['vehicle_number']}", "vehicle_number": v["vehicle_number"], "due_date": g_due_date})
+            elif g_due_date and g_due_date <= in_15:
+                alerts.append({"type": "greasing_due", "severity": "warning",
+                               "message": f"Greasing due (within 15 days) — {v['vehicle_number']}", "vehicle_number": v["vehicle_number"], "due_date": g_due_date})
+            elif g_due_km and odo >= g_due_km:
+                alerts.append({"type": "greasing_overdue", "severity": "danger",
+                               "message": f"Greasing OVERDUE (by KM) — {v['vehicle_number']}", "vehicle_number": v["vehicle_number"], "due_date": None})
         if v.get("fastag_number") and (v.get("fastag_balance") or 0) < 200:
             alerts.append({"type": "fastag_low", "severity": "warning",
                            "message": f"Fastag balance low (₹{round(v.get('fastag_balance') or 0)}) — {v['vehicle_number']}",
@@ -156,6 +172,8 @@ async def dashboard(user=Depends(require_user)):
     alerts = await compute_alerts()
     service_due = sum(1 for a in alerts if a["type"] == "service_due")
     service_overdue = sum(1 for a in alerts if a["type"] == "service_overdue")
+    greasing_due = sum(1 for a in alerts if a["type"] == "greasing_due")
+    greasing_overdue = sum(1 for a in alerts if a["type"] == "greasing_overdue")
     ninety_days_ago = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
     repair_counts = {}
     for r in await db.repairs.find({"date": {"$gte": ninety_days_ago}, "vehicle_id": {"$in": list(active_ids)}}, {"_id": 0}).to_list(5000):
@@ -179,7 +197,9 @@ async def dashboard(user=Depends(require_user)):
         "operations": {"running_today": running_today, "under_repair": len(under_repair_ids),
                        "idle": vehicles_idle, "active_trips": active_trips},
         "fuel": {"cost_this_month": fuel_cost_month, "avg_mileage": avg_mileage, "top_consumers": top_fuel},
-        "maintenance": {"service_due": service_due, "service_overdue": service_overdue, "frequent_repairs": frequent_repairs},
+        "maintenance": {"service_due": service_due, "service_overdue": service_overdue,
+                        "greasing_due": greasing_due, "greasing_overdue": greasing_overdue,
+                        "frequent_repairs": frequent_repairs},
         "financial": {"monthly_cost": monthly_cost, "cost_per_km": cost_per_km, "month_km": month_km, "top_cost_vehicles": top_cost},
         "alerts": alerts[:25],
     }
@@ -229,6 +249,8 @@ REPORT_LIST = [
     {"key": "downtime", "name": "Downtime & Utilization Report"},
     {"key": "cost_per_km", "name": "Cost Per KM (Vehicle Ranking)"},
     {"key": "fuel_efficiency", "name": "Fuel Efficiency Ranking"},
+    {"key": "greasing", "name": "Greasing History Report"},
+    {"key": "greasing_due", "name": "Greasing Due / Overdue List"},
 ]
 
 
@@ -375,6 +397,33 @@ async def build_report(key, vehicle_id=None, driver_id=None, start_date=None, en
                          round(sum(f.get("amount") or 0 for f in fuel), 2),
                          round(sum(mileages) / len(mileages), 2) if mileages else None])
         rows.sort(key=lambda r: -(r[4] or 0))
+        return cols, rows
+
+    if key == "greasing":
+        items = await db.greasings.find(_q(vehicle_id, None, start_date, end_date), {"_id": 0}).sort("date", -1).to_list(5000)
+        cols = ["Date", "Vehicle", "Odometer", "Person", "Cost (₹)", "Next Due Date", "Next Due KM"]
+        rows = [[g.get("date"), vmap.get(g["vehicle_id"], ""), g.get("odometer"), g.get("responsible_person"),
+                 g.get("cost"), g.get("next_due_date"), g.get("next_due_km")] for g in items]
+        return cols, rows
+
+    if key == "greasing_due":
+        vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0}).to_list(2000)
+        cols = ["Vehicle", "Last Greasing", "Next Due Date", "Next Due KM", "Current Odometer", "Status"]
+        rows = []
+        in_15_d = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")
+        for v in vehicles:
+            latest = await db.greasings.find({"vehicle_id": v["id"]}, {"_id": 0}).sort("date", -1).to_list(1)
+            if not latest:
+                rows.append([v["vehicle_number"], "Never greased", None, None, v.get("current_odometer"), "NO RECORD"])
+                continue
+            g = latest[0]
+            odo = v.get("current_odometer") or 0
+            status = "OK"
+            if (g.get("next_due_date") and g["next_due_date"] < today) or (g.get("next_due_km") and odo >= g["next_due_km"]):
+                status = "OVERDUE"
+            elif g.get("next_due_date") and g["next_due_date"] <= in_15_d:
+                status = "DUE SOON"
+            rows.append([v["vehicle_number"], g.get("date"), g.get("next_due_date"), g.get("next_due_km"), odo, status])
         return cols, rows
 
     raise HTTPException(status_code=404, detail="Unknown report")

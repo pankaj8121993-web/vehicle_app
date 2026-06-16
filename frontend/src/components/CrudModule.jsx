@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Search, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { canCreate, canEdit, canDelete } from "@/lib/permissions";
@@ -27,6 +28,17 @@ const renderCell = (col, row) => {
     case "badge": return <StatusBadge value={val} />;
     case "expiry": return <ExpiryBadge date={val} />;
     case "file": return <FileLink fileId={val} />;
+    case "tags": {
+      const arr = Array.isArray(val) ? val : [];
+      if (!arr.length) return <span className="text-slate-400">—</span>;
+      return (
+        <div className="flex flex-wrap gap-1">
+          {arr.map((t) => (
+            <span key={t} className="border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">{t}</span>
+          ))}
+        </div>
+      );
+    }
     default: return val === null || val === undefined || val === "" ? <span className="text-slate-400">—</span> : String(val);
   }
 };
@@ -35,6 +47,25 @@ const FieldInput = ({ field, value, onChange, options }) => {
   const testId = `form-field-${field.name}`;
   if (field.type === "textarea") {
     return <Textarea data-testid={testId} value={value ?? ""} onChange={(e) => onChange(e.target.value)} rows={2} className="rounded-none" />;
+  }
+  if (field.type === "multiselect") {
+    const selected = Array.isArray(value) ? value : [];
+    return (
+      <div className="flex flex-col gap-1.5 border border-slate-200 bg-white p-2" data-testid={testId}>
+        {(field.options || []).map((o) => (
+          <label key={o.value} className="flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox
+              checked={selected.includes(o.value)}
+              onCheckedChange={(checked) =>
+                onChange(checked ? [...selected, o.value] : selected.filter((x) => x !== o.value))
+              }
+              data-testid={`${testId}-option-${o.value.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+            />
+            <span>{o.label}</span>
+          </label>
+        ))}
+      </div>
+    );
   }
   if (field.type === "select" || field.type === "vehicle" || field.type === "driver" || field.type === "tyre") {
     const opts = field.type === "select" ? field.options : options[field.type] || [];
@@ -298,6 +329,7 @@ export const CrudModule = ({
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">
           <SheetHeader>
             <SheetTitle className="font-heading text-xl font-bold">{editing ? `Edit ${title}` : addLabel || `Add ${title}`}</SheetTitle>
+            <SheetDescription className="sr-only">{editing ? `Edit ${title} form` : `Add ${title} form`}</SheetDescription>
           </SheetHeader>
           <div className="mt-5 space-y-4">
             {visibleFields.map((f) => (

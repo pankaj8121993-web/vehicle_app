@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
 from auth import require_user, require_role
-from models import TripCreate, FuelCreate, ServiceCreate, RepairCreate
+from models import TripCreate, FuelCreate, ServiceCreate, RepairCreate, GreasingCreate
 from helpers import make_crud
 
 router = APIRouter(tags=["operations"])
@@ -67,6 +67,14 @@ async def on_service_create(doc):
     return doc
 
 make_crud(router, "services", "services", ServiceCreate, on_create=on_service_create)
+
+
+# ---------- Greasing (Phase 1.5) ----------
+async def on_greasing_create(doc):
+    await _update_vehicle_odometer(doc["vehicle_id"], doc.get("odometer"))
+    return doc
+
+make_crud(router, "greasings", "greasings", GreasingCreate, on_create=on_greasing_create)
 
 
 # ---------- Repairs ----------

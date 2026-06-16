@@ -16,7 +16,7 @@ DRIVER_ACTIVE_STATUSES = ["active", "on_leave"]
 
 # Collections checked when blocking a vehicle delete
 VEHICLE_HISTORY_COLLECTIONS = [
-    "trips", "fuel_entries", "services", "repairs", "tyres", "tyre_events",
+    "trips", "fuel_entries", "services", "greasings", "repairs", "tyres", "tyre_events",
     "accidents", "fastag_transactions", "downtimes", "expenses", "documents",
 ]
 # Collections checked when blocking a driver delete
@@ -69,11 +69,21 @@ async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(requi
             raise HTTPException(status_code=403, detail="Only Management or Admin can mark a vehicle as Sold or Scrapped")
         if not payload.get("disposal_date"):
             payload["disposal_date"] = today_iso()
-        # Close any open downtimes
-        await db.downtimes.update_many(
-            {"vehicle_id": vid, "status": "open"},
-            {"$set": {"status": "closed", "end_date": payload["disposal_date"]}},
-        )
+        # Close any open downtimes (recompute `days` so finance/reports stay correct)
+        open_dts = await db.downtimes.find(
+            {"vehicle_id": vid, "status": "open"}, {"_id": 0}
+        ).to_list(500)
+        for dt in open_dts:
+            try:
+                d1 = datetime.fromisoformat(dt["start_date"])
+                d2 = datetime.fromisoformat(payload["disposal_date"])
+                days = max((d2 - d1).days + 1, 1)
+            except (ValueError, TypeError):
+                days = None
+            await db.downtimes.update_one(
+                {"id": dt["id"]},
+                {"$set": {"status": "closed", "end_date": payload["disposal_date"], "days": days}},
+            )
         # Unassign any drivers currently linked to this vehicle
         await db.drivers.update_many(
             {"assigned_vehicle_id": vid},

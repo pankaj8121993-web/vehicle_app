@@ -5,9 +5,11 @@ import { useAuth } from "@/context/AuthContext";
 import { canApprove } from "@/lib/permissions";
 import { CrudModule } from "@/components/CrudModule";
 import { PeriodFilter } from "@/components/PeriodFilter";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   tripConfig, fuelConfig, serviceConfig, repairConfig, tyreConfig, tyreEventConfig,
   accidentConfig, fastagConfig, downtimeConfig, documentConfig, driverConfig,
+  greasingConfig,
 } from "@/lib/configs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -124,9 +126,17 @@ export const FuelPage = () => {
 export const MaintenancePage = () => {
   const { filters, setRange } = useDateRange();
   return (
-    <div><PageHeader title="Maintenance" subtitle="Scheduled services with next-due tracking by date and KM" />
+    <div><PageHeader title="Maintenance" subtitle="Scheduled services and greasing with next-due tracking by date and KM" />
       <PeriodFilter testIdPrefix="maintenance-period" onChange={setRange} />
-      <CrudModule {...serviceConfig} fixedFilters={filters} /></div>
+      <Tabs defaultValue="services">
+        <TabsList className="rounded-none border border-slate-200 bg-white p-0">
+          <TabsTrigger value="services" data-testid="maintenance-tab-services" className="rounded-none px-5 py-2.5 data-[state=active]:bg-slate-900 data-[state=active]:text-white">Services</TabsTrigger>
+          <TabsTrigger value="greasing" data-testid="maintenance-tab-greasing" className="rounded-none px-5 py-2.5 data-[state=active]:bg-slate-900 data-[state=active]:text-white">Greasing</TabsTrigger>
+        </TabsList>
+        <TabsContent value="services" className="mt-5"><CrudModule {...serviceConfig} fixedFilters={filters} /></TabsContent>
+        <TabsContent value="greasing" className="mt-5"><CrudModule {...greasingConfig} fixedFilters={filters} /></TabsContent>
+      </Tabs>
+    </div>
   );
 };
 
