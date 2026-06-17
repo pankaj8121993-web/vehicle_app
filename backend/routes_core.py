@@ -32,7 +32,14 @@ def today_iso():
 async def list_vehicles(request: Request, user=Depends(require_user)):
     p = dict(request.query_params)
     include_disposed = (p.get("include_disposed") or "").lower() == "true"
+    include_test = (p.get("include_test") or "").lower() == "true" and user.get("role") == "admin"
     q = {} if include_disposed else {"status": {"$nin": DISPOSED_STATUSES}}
+    if not include_test:
+        q["is_test_data"] = {"$ne": True}
+    # In test mode, ONLY show test vehicles
+    if user.get("role") == "test":
+        q.pop("is_test_data", None)
+        q["is_test_data"] = True
     if p.get("all") == "true":
         return await db.vehicles.find(q, {"_id": 0}).sort("vehicle_number", 1).to_list(3000)
     page = max(int(p.get("page", 1)), 1)
@@ -44,20 +51,26 @@ async def list_vehicles(request: Request, user=Depends(require_user)):
 
 @router.post("/vehicles")
 async def create_vehicle(payload: VehicleCreate, user=Depends(require_user)):
+    if user["role"] == "driver":
+        raise HTTPException(status_code=403, detail="Drivers cannot create vehicles")
     doc = payload.model_dump()
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["created_by"] = user["user_id"]
+    doc["is_test_data"] = user.get("role") == "test"
     await db.vehicles.insert_one({**doc})
     doc.pop("_id", None)
     return doc
 
 
 @router.put("/vehicles/{vid}")
-async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin"))):
-    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at")}
+async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
+    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
     existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Vehicle not found")
+    if user.get("role") == "test" and not existing.get("is_test_data"):
+        raise HTTPException(status_code=403, detail="Test mode: cannot modify real vehicles")
 
     new_status = payload.get("status")
     is_disposing = (
@@ -97,10 +110,12 @@ async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(requi
 
 
 @router.delete("/vehicles/{vid}")
-async def delete_vehicle(vid: str, user=Depends(require_role("admin"))):
+async def delete_vehicle(vid: str, user=Depends(require_role("admin", "test"))):
     existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Vehicle not found")
+    if user.get("role") == "test" and not existing.get("is_test_data"):
+        raise HTTPException(status_code=403, detail="Test mode: cannot delete real vehicles")
     # Block delete if any history exists (cascade-delete removed in Phase 1)
     for coll in VEHICLE_HISTORY_COLLECTIONS:
         if await db[coll].count_documents({"vehicle_id": vid}, limit=1):
@@ -179,9 +194,12 @@ async def _enrich_drivers(drivers, vmap):
 @router.get("/drivers/active")
 async def list_active_drivers(user=Depends(require_user)):
     """Active + on_leave drivers — for dropdowns in trip/fuel/accident forms."""
-    drivers = await db.drivers.find(
-        {"status": {"$in": DRIVER_ACTIVE_STATUSES}}, {"_id": 0}
-    ).sort("name", 1).to_list(3000)
+    q = {"status": {"$in": DRIVER_ACTIVE_STATUSES}}
+    if user.get("role") == "test":
+        q["is_test_data"] = True
+    else:
+        q["is_test_data"] = {"$ne": True}
+    drivers = await db.drivers.find(q, {"_id": 0}).sort("name", 1).to_list(3000)
     vmap = {v["id"]: v.get("vehicle_number", "") for v in await db.vehicles.find({}, {"_id": 0, "id": 1, "vehicle_number": 1}).to_list(3000)}
     return await _enrich_drivers(drivers, vmap)
 
@@ -189,34 +207,46 @@ async def list_active_drivers(user=Depends(require_user)):
 @router.get("/drivers")
 async def list_drivers(request: Request, user=Depends(require_user)):
     p = dict(request.query_params)
+    include_test = (p.get("include_test") or "").lower() == "true" and user.get("role") == "admin"
+    q = {}
+    if user.get("role") == "test":
+        q["is_test_data"] = True
+    elif not include_test:
+        q["is_test_data"] = {"$ne": True}
     vmap = {v["id"]: v.get("vehicle_number", "") for v in await db.vehicles.find({}, {"_id": 0, "id": 1, "vehicle_number": 1}).to_list(3000)}
     if p.get("all") == "true":
-        drivers = await db.drivers.find({}, {"_id": 0}).sort("name", 1).to_list(3000)
+        drivers = await db.drivers.find(q, {"_id": 0}).sort("name", 1).to_list(3000)
         return await _enrich_drivers(drivers, vmap)
     page = max(int(p.get("page", 1)), 1)
     page_size = min(max(int(p.get("page_size", 25)), 1), 200)
-    total = await db.drivers.count_documents({})
-    drivers = await db.drivers.find({}, {"_id": 0}).sort("name", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    total = await db.drivers.count_documents(q)
+    drivers = await db.drivers.find(q, {"_id": 0}).sort("name", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
     drivers = await _enrich_drivers(drivers, vmap)
     return {"items": drivers, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/drivers")
 async def create_driver(payload: DriverCreate, user=Depends(require_user)):
+    if user["role"] == "driver":
+        raise HTTPException(status_code=403, detail="Drivers cannot create driver records")
     doc = payload.model_dump()
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["created_by"] = user["user_id"]
+    doc["is_test_data"] = user.get("role") == "test"
     await db.drivers.insert_one({**doc})
     doc.pop("_id", None)
     return doc
 
 
 @router.put("/drivers/{did}")
-async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin"))):
-    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at")}
+async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
+    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
     existing = await db.drivers.find_one({"id": did}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Driver not found")
+    if user.get("role") == "test" and not existing.get("is_test_data"):
+        raise HTTPException(status_code=403, detail="Test mode: cannot modify real drivers")
 
     new_status = payload.get("status")
     is_exiting = (
@@ -238,10 +268,12 @@ async def update_driver(did: str, payload: dict = Body(...), user=Depends(requir
 
 
 @router.delete("/drivers/{did}")
-async def delete_driver(did: str, user=Depends(require_role("admin"))):
+async def delete_driver(did: str, user=Depends(require_role("admin", "test"))):
     existing = await db.drivers.find_one({"id": did}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Driver not found")
+    if user.get("role") == "test" and not existing.get("is_test_data"):
+        raise HTTPException(status_code=403, detail="Test mode: cannot delete real drivers")
     for coll in DRIVER_HISTORY_COLLECTIONS:
         if await db[coll].count_documents({"driver_id": did}, limit=1):
             raise HTTPException(

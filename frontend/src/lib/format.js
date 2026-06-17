@@ -58,4 +58,5 @@ export const ROLE_LABELS = {
   data_entry: "Data Entry Operator",
   management: "Management",
   admin: "Admin",
+  test: "Test User",
 };

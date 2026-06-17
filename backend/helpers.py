@@ -34,6 +34,10 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         if p.get("end_date"):
             q.setdefault(date_field, {})
             q[date_field]["$lte"] = p["end_date"]
+        # is_test_data default-exclude (admins can opt-in via ?include_test=true)
+        include_test = (p.get("include_test") or "").lower() == "true"
+        if not (include_test and user.get("role") == "admin"):
+            q["is_test_data"] = {"$ne": True}
         if p.get("all") == "true":
             items = await db[coll].find(q, {"_id": 0}).sort(date_field, -1).to_list(3000)
             return await enrich(items)
@@ -51,6 +55,7 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         doc["id"] = str(uuid.uuid4())
         doc["created_at"] = datetime.now(timezone.utc).isoformat()
         doc["created_by"] = user["user_id"]
+        doc["is_test_data"] = user.get("role") == "test"
         if on_create:
             doc = await on_create(doc)
         await db[coll].insert_one({**doc})
@@ -58,23 +63,33 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         return doc
 
     @router.put(f"/{path}/{{item_id}}")
-    async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin"))):
-        payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by")}
+    async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
+        payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
+        if user.get("role") == "test":
+            existing = await db[coll].find_one({"id": item_id}, {"_id": 0, "is_test_data": 1})
+            if not existing or not existing.get("is_test_data"):
+                raise HTTPException(status_code=403, detail="Test mode: cannot modify real records")
         res = await db[coll].update_one({"id": item_id}, {"$set": payload})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Not found")
         return await db[coll].find_one({"id": item_id}, {"_id": 0})
 
     @router.delete(f"/{path}/{{item_id}}")
-    async def delete_item(item_id: str, user=Depends(require_role("admin"))):
+    async def delete_item(item_id: str, user=Depends(require_role("admin", "test"))):
+        if user.get("role") == "test":
+            existing = await db[coll].find_one({"id": item_id}, {"_id": 0, "is_test_data": 1})
+            if not existing or not existing.get("is_test_data"):
+                raise HTTPException(status_code=403, detail="Test mode: cannot delete real records")
         await db[coll].delete_one({"id": item_id})
         return {"ok": True}
 
 
-async def gather_expenses(vehicle_id=None, start_date=None, end_date=None):
+async def gather_expenses(vehicle_id=None, start_date=None, end_date=None, include_test=False):
     """Aggregate all expense rows across modules into a unified ledger."""
     def q(date_field="date", extra=None):
         qq = dict(extra or {})
+        if not include_test:
+            qq["is_test_data"] = {"$ne": True}
         if vehicle_id:
             qq["vehicle_id"] = vehicle_id
         if start_date:

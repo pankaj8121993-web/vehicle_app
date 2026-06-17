@@ -109,7 +109,8 @@ make_crud(router, "downtime", "downtimes", DowntimeCreate, date_field="start_dat
 # ---------- Expenses ----------
 @router.get("/expenses/ledger")
 async def expense_ledger(vehicle_id: str = None, start_date: str = None, end_date: str = None, user=Depends(require_user)):
-    rows = await gather_expenses(vehicle_id=vehicle_id, start_date=start_date, end_date=end_date)
+    include_test = user.get("role") == "test"
+    rows = await gather_expenses(vehicle_id=vehicle_id, start_date=start_date, end_date=end_date, include_test=include_test)
     rows = await enrich(rows)
     by_category = {}
     by_vehicle = {}

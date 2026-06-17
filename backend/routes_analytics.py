@@ -19,9 +19,10 @@ def month_start_str():
 
 
 async def active_vehicle_ids():
-    """Set of vehicle IDs that are NOT sold/scrapped (used to exclude disposed everywhere)."""
+    """Set of vehicle IDs that are NOT sold/scrapped AND NOT test data (used to exclude both)."""
     vs = await db.vehicles.find(
-        {"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0, "id": 1}
+        {"status": {"$nin": DISPOSED_STATUSES}, "is_test_data": {"$ne": True}},
+        {"_id": 0, "id": 1}
     ).to_list(3000)
     return {v["id"] for v in vs}
 
@@ -74,8 +75,8 @@ async def compute_alerts():
             alerts.append({"type": "license_expiring", "severity": "warning",
                            "message": f"License expiring — {dr['name']}", "vehicle_number": "", "due_date": exp})
 
-    # Service due / overdue based on latest service per vehicle (active vehicles only)
-    vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0}).to_list(2000)
+    # Service due / overdue based on latest service per vehicle (active vehicles only, excluding test)
+    vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}, "is_test_data": {"$ne": True}}, {"_id": 0}).to_list(2000)
     in_15 = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")
     for v in vehicles:
         latest_svc = await db.services.find({"vehicle_id": v["id"]}, {"_id": 0}).sort("date", -1).to_list(1)
@@ -136,7 +137,7 @@ async def dashboard(user=Depends(require_user)):
     today = today_str()
     in_30 = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
     month_start = month_start_str()
-    vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0}).to_list(2000)
+    vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}, "is_test_data": {"$ne": True}}, {"_id": 0}).to_list(2000)
     vmap = {v["id"]: v.get("vehicle_number", "") for v in vehicles}
     active_ids = set(vmap.keys())
     total_vehicles = len(vehicles)

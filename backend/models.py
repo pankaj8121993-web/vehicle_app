@@ -2,6 +2,30 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str
+    full_name: str
+    is_active: Optional[bool] = True
+
+
+class UserUpdate(BaseModel):
+    role: Optional[str] = None
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 class VehicleCreate(BaseModel):
     vehicle_number: str
     make: Optional[str] = None

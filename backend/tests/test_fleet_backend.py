@@ -1,8 +1,14 @@
 """
-Rajguru Foods Fleet Management - Iteration 2 backend tests.
-Auth model: X-Role header (driver/data_entry/management/admin). No tokens.
-Covers: roles endpoint, pagination shape, RBAC (driver/data_entry/admin),
-repair approval (management), dashboard trends, fastag sync, driver stats.
+Rajguru Foods Fleet Management — backend tests (post-Checkpoint 2).
+Auth model: username/password → opaque session token → Authorization: Bearer <token>.
+The h(role) helper transparently logs in and caches tokens so legacy tests keep working.
+
+Default seeded users (must_change_password=True on first boot — tests handle that):
+  admin       / rajguru@2026
+  manager     / manager@2026          (role=management)
+  dataentry1  / dataentry@2026
+  driver1     / driver@2026
+  test        / test@2026
 """
 import os
 import uuid
@@ -12,12 +18,60 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://vehicle-central-17.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-# Seeded data per agent context
 SEEDED_VEHICLE_ID = "0e572cbb-d447-4107-a08b-e7c7f409c73b"
+
+# Default credentials per spec — tests assume these (seeded on first boot)
+CREDS = {
+    "admin": ("admin", "rajguru@2026"),
+    "management": ("manager", "manager@2026"),
+    "data_entry": ("dataentry1", "dataentry@2026"),
+    "driver": ("driver1", "driver@2026"),
+    "test": ("test", "test@2026"),
+}
+NEW_PASSWORDS = {
+    "admin": "Admin@Test1",
+    "management": "Mgmt@Test1",
+    "data_entry": "Data@Test1",
+    "driver": "Driver@Test1",
+    "test": "Test@Test1",
+}
+
+_TOKENS = {}
+
+
+def _ensure_password_changed(role):
+    """First-time login each user is forced to change password. Tests use NEW_PASSWORDS afterward."""
+    username, original_pw = CREDS[role]
+    new_pw = NEW_PASSWORDS[role]
+    # Try login with new password first (idempotent across reruns)
+    r = requests.post(f"{API}/auth/login", json={"username": username, "password": new_pw})
+    if r.status_code == 200:
+        return r.json()["token"]
+    # Else use seeded password and change it
+    r = requests.post(f"{API}/auth/login", json={"username": username, "password": original_pw})
+    if r.status_code != 200:
+        raise AssertionError(f"Initial login for {username} failed: {r.status_code} {r.text}")
+    token = r.json()["token"]
+    if r.json()["user"].get("must_change_password"):
+        cp = requests.post(f"{API}/auth/change-password",
+                           headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                           json={"current_password": original_pw, "new_password": new_pw})
+        assert cp.status_code == 200, f"change-password for {username} failed: {cp.text}"
+        # Session is preserved per spec; just re-login to be safe
+        r2 = requests.post(f"{API}/auth/login", json={"username": username, "password": new_pw})
+        assert r2.status_code == 200, r2.text
+        return r2.json()["token"]
+    return token
+
+
+def _token(role):
+    if role not in _TOKENS:
+        _TOKENS[role] = _ensure_password_changed(role)
+    return _TOKENS[role]
 
 
 def h(role):
-    return {"X-Role": role, "Content-Type": "application/json"}
+    return {"Authorization": f"Bearer {_token(role)}", "Content-Type": "application/json"}
 
 
 # ---------------- Roles ----------------
@@ -26,9 +80,9 @@ class TestRoles:
         r = requests.get(f"{API}/roles", headers=h("admin"))
         assert r.status_code == 200
         data = r.json()
-        assert isinstance(data, list) and len(data) == 4
+        assert isinstance(data, list) and len(data) == 5
         roles = [d["role"] for d in data]
-        assert set(roles) == {"driver", "data_entry", "management", "admin"}
+        assert set(roles) == {"driver", "data_entry", "management", "admin", "test"}
         for d in data:
             assert "label" in d and "rights" in d
 
@@ -666,6 +720,214 @@ class TestDriverEnrichment:
             assert r2.json()["skills"] == ["Tractor"]
         finally:
             requests.delete(f"{API}/drivers/{did}", headers=h("admin"))
+
+
+# ---------------- Checkpoint 2: Authentication ----------------
+class TestAuth:
+    def test_login_invalid_credentials(self):
+        r = requests.post(f"{API}/auth/login", json={"username": "noone", "password": "nope"})
+        assert r.status_code == 401
+
+    def test_login_and_me(self):
+        # admin should already be force-pw-changed by the test harness
+        username, _ = CREDS["admin"]
+        new_pw = NEW_PASSWORDS["admin"]
+        r = requests.post(f"{API}/auth/login", json={"username": username, "password": new_pw})
+        assert r.status_code == 200
+        token = r.json()["token"]
+        assert r.json()["user"]["role"] == "admin"
+        m = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert m.status_code == 200
+        assert m.json()["username"] == username
+
+    def test_unauthenticated_request_returns_401(self):
+        r = requests.get(f"{API}/vehicles")
+        assert r.status_code == 401
+        r2 = requests.get(f"{API}/vehicles", headers={"Authorization": "Bearer not-a-token"})
+        assert r2.status_code == 401
+
+    def test_change_password_wrong_current(self):
+        token = _token("management")
+        r = requests.post(f"{API}/auth/change-password",
+                          headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                          json={"current_password": "wrong", "new_password": "anything123"})
+        assert r.status_code == 400
+
+    def test_change_password_too_short(self):
+        token = _token("management")
+        r = requests.post(f"{API}/auth/change-password",
+                          headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                          json={"current_password": NEW_PASSWORDS["management"], "new_password": "abc"})
+        assert r.status_code == 400
+
+    def test_logout_revokes_session(self):
+        # Fresh login so we don't kill the cached test session
+        login = requests.post(f"{API}/auth/login",
+                              json={"username": CREDS["data_entry"][0],
+                                    "password": NEW_PASSWORDS["data_entry"]})
+        assert login.status_code == 200
+        token = login.json()["token"]
+        # Verify session works
+        m1 = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert m1.status_code == 200
+        # Logout
+        lo = requests.post(f"{API}/auth/logout", headers={"Authorization": f"Bearer {token}"})
+        assert lo.status_code == 200
+        # Now session is dead
+        m2 = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert m2.status_code == 401
+
+
+class TestUserManagement:
+    def test_only_admin_lists_users(self):
+        r_admin = requests.get(f"{API}/users", headers=h("admin"))
+        assert r_admin.status_code == 200
+        assert isinstance(r_admin.json(), list)
+        assert all("password_hash" not in u for u in r_admin.json())
+        r_other = requests.get(f"{API}/users", headers=h("management"))
+        assert r_other.status_code == 403
+        r_de = requests.get(f"{API}/users", headers=h("data_entry"))
+        assert r_de.status_code == 403
+
+    def test_create_user_lifecycle(self):
+        uname = f"u_{uuid.uuid4().hex[:6]}"
+        payload = {"username": uname, "password": "secret123",
+                   "role": "data_entry", "full_name": "Lifecycle Test"}
+        r = requests.post(f"{API}/users", headers=h("admin"), json=payload)
+        assert r.status_code in (200, 201), r.text
+        uid = r.json()["id"]
+        assert r.json()["must_change_password"] is True
+        try:
+            # Login + change pw flow
+            l1 = requests.post(f"{API}/auth/login", json={"username": uname, "password": "secret123"})
+            assert l1.status_code == 200
+            assert l1.json()["user"]["must_change_password"] is True
+            tok = l1.json()["token"]
+            cp = requests.post(f"{API}/auth/change-password",
+                               headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                               json={"current_password": "secret123", "new_password": "newer123"})
+            assert cp.status_code == 200
+            l2 = requests.post(f"{API}/auth/login", json={"username": uname, "password": "newer123"})
+            assert l2.status_code == 200
+            assert l2.json()["user"]["must_change_password"] is False
+            # Admin updates role
+            upd = requests.put(f"{API}/users/{uid}", headers=h("admin"), json={"role": "management"})
+            assert upd.status_code == 200
+            assert upd.json()["role"] == "management"
+            # Role change revokes prior sessions
+            me = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {tok}"})
+            assert me.status_code == 401
+            # Admin resets pw
+            rp = requests.post(f"{API}/users/{uid}/reset-password", headers=h("admin"))
+            assert rp.status_code == 200
+            assert "temporary_password" in rp.json()
+            temp = rp.json()["temporary_password"]
+            l3 = requests.post(f"{API}/auth/login", json={"username": uname, "password": temp})
+            assert l3.status_code == 200
+            assert l3.json()["user"]["must_change_password"] is True
+            # Deactivate via admin
+            deact = requests.put(f"{API}/users/{uid}", headers=h("admin"), json={"is_active": False})
+            assert deact.status_code == 200
+            # Can't login while inactive
+            blocked = requests.post(f"{API}/auth/login", json={"username": uname, "password": temp})
+            assert blocked.status_code == 401
+        finally:
+            requests.delete(f"{API}/users/{uid}", headers=h("admin"))
+
+    def test_cannot_delete_self(self):
+        # Find admin's id via /auth/me
+        m = requests.get(f"{API}/auth/me", headers=h("admin"))
+        assert m.status_code == 200
+        my_id = m.json()["id"]
+        r = requests.delete(f"{API}/users/{my_id}", headers=h("admin"))
+        assert r.status_code == 400
+
+    def test_duplicate_username_rejected(self):
+        uname = f"dup_{uuid.uuid4().hex[:6]}"
+        payload = {"username": uname, "password": "secret123", "role": "driver", "full_name": "Dup1"}
+        r = requests.post(f"{API}/users", headers=h("admin"), json=payload)
+        assert r.status_code in (200, 201)
+        uid = r.json()["id"]
+        try:
+            payload["full_name"] = "Dup2"
+            r2 = requests.post(f"{API}/users", headers=h("admin"), json=payload)
+            assert r2.status_code == 400
+        finally:
+            requests.delete(f"{API}/users/{uid}", headers=h("admin"))
+
+
+class TestTestRoleSandbox:
+    def test_test_user_creates_are_flagged_is_test_data(self):
+        payload = {"vehicle_number": f"TEST_SBX_{uuid.uuid4().hex[:6]}",
+                   "vtype": "Truck", "make": "Tata", "model": "Sandbox"}
+        r = requests.post(f"{API}/vehicles", headers=h("test"), json=payload)
+        assert r.status_code in (200, 201), r.text
+        vid = r.json()["id"]
+        assert r.json().get("is_test_data") is True
+        try:
+            # Real admin's list excludes test data
+            list_admin = requests.get(f"{API}/vehicles?all=true", headers=h("admin"))
+            assert vid not in [v["id"] for v in list_admin.json()]
+            # Admin can opt-in via include_test=true
+            list_admin_inc = requests.get(f"{API}/vehicles?all=true&include_test=true", headers=h("admin"))
+            assert vid in [v["id"] for v in list_admin_inc.json()]
+            # Test user's list shows ONLY test data
+            list_test = requests.get(f"{API}/vehicles?all=true", headers=h("test"))
+            ids = [v["id"] for v in list_test.json()]
+            assert vid in ids
+            assert SEEDED_VEHICLE_ID not in ids
+        finally:
+            requests.delete(f"{API}/vehicles/{vid}", headers=h("admin"))
+
+    def test_test_cannot_modify_real_records(self):
+        r = requests.put(f"{API}/vehicles/{SEEDED_VEHICLE_ID}", headers=h("test"),
+                         json={"notes": "hack attempt"})
+        assert r.status_code == 403
+        r2 = requests.delete(f"{API}/vehicles/{SEEDED_VEHICLE_ID}", headers=h("test"))
+        assert r2.status_code == 403
+
+    def test_test_can_modify_own_records(self):
+        # Test user creates a vehicle then edits & deletes it
+        payload = {"vehicle_number": f"TEST_OWN_{uuid.uuid4().hex[:6]}", "vtype": "Truck"}
+        r = requests.post(f"{API}/vehicles", headers=h("test"), json=payload)
+        assert r.status_code in (200, 201)
+        vid = r.json()["id"]
+        try:
+            upd = requests.put(f"{API}/vehicles/{vid}", headers=h("test"),
+                               json={"notes": "edited by test user"})
+            assert upd.status_code == 200
+        finally:
+            d = requests.delete(f"{API}/vehicles/{vid}", headers=h("test"))
+            assert d.status_code == 200
+
+    def test_purge_endpoint_admin_only(self):
+        r_de = requests.post(f"{API}/admin/purge-test-data", headers=h("data_entry"))
+        assert r_de.status_code == 403
+        r_mgmt = requests.post(f"{API}/admin/purge-test-data", headers=h("management"))
+        assert r_mgmt.status_code == 403
+        r = requests.post(f"{API}/admin/purge-test-data", headers=h("admin"))
+        assert r.status_code == 200
+        assert "deleted" in r.json() and "total" in r.json()
+
+    def test_dashboard_and_drilldowns_exclude_test_data(self):
+        # Test user creates a vehicle + an expired doc → real admin's dashboard / docs_expired must not include it
+        v = requests.post(f"{API}/vehicles", headers=h("test"),
+                          json={"vehicle_number": f"TEST_EXC_{uuid.uuid4().hex[:6]}", "vtype": "Truck"})
+        vid = v.json()["id"]
+        doc_id = None
+        try:
+            d = requests.post(f"{API}/documents", headers=h("test"),
+                              json={"vehicle_id": vid, "doc_type": "RC", "doc_number": "TEST_DOC",
+                                    "expiry_date": "2020-01-01"})
+            assert d.status_code in (200, 201)
+            doc_id = d.json()["id"]
+            # Verify it's NOT in docs_expired drilldown for admin
+            r = requests.get(f"{API}/drilldowns/docs_expired", headers=h("admin"))
+            assert vid not in [x["vehicle_id"] for x in r.json()]
+        finally:
+            if doc_id:
+                requests.delete(f"{API}/documents/{doc_id}", headers=h("admin"))
+            requests.delete(f"{API}/vehicles/{vid}", headers=h("admin"))
 
 
 if __name__ == "__main__":

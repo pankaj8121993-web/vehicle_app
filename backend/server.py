@@ -1,9 +1,12 @@
 import os
 import logging
+import uuid as _uuid
+from datetime import datetime, timezone
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
+from passlib.hash import bcrypt
 
-from database import client
+from database import client, db
 import auth
 import routes_core
 import routes_ops
@@ -43,6 +46,15 @@ app.add_middleware(
 )
 
 
+DEFAULT_USERS = [
+    {"username": "admin", "password": "rajguru@2026", "role": "admin", "full_name": "Pankaj (Admin)"},
+    {"username": "manager", "password": "manager@2026", "role": "management", "full_name": "Manager"},
+    {"username": "dataentry1", "password": "dataentry@2026", "role": "data_entry", "full_name": "Data Entry Operator"},
+    {"username": "driver1", "password": "driver@2026", "role": "driver", "full_name": "Driver"},
+    {"username": "test", "password": "test@2026", "role": "test", "full_name": "Test User"},
+]
+
+
 @app.on_event("startup")
 async def startup():
     try:
@@ -50,6 +62,22 @@ async def startup():
         logger.info("Object storage initialized")
     except Exception as e:
         logger.error(f"Storage init failed (uploads will retry lazily): {e}")
+    # Seed default users on first boot
+    existing = await db.users.count_documents({})
+    if existing == 0:
+        for u in DEFAULT_USERS:
+            await db.users.insert_one({
+                "id": str(_uuid.uuid4()),
+                "username": u["username"],
+                "password_hash": bcrypt.hash(u["password"]),
+                "role": u["role"],
+                "full_name": u["full_name"],
+                "is_active": True,
+                "must_change_password": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_by": "system",
+            })
+        logger.info(f"Seeded {len(DEFAULT_USERS)} default users")
 
 
 @app.on_event("shutdown")

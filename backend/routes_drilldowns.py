@@ -18,9 +18,9 @@ def _today():
 
 
 async def _active_vehicle_map():
-    """{id: vehicle_number} for non-disposed vehicles only."""
+    """{id: vehicle} for non-disposed AND non-test vehicles."""
     vs = await db.vehicles.find(
-        {"status": {"$nin": DISPOSED_STATUSES}}, {"_id": 0}
+        {"status": {"$nin": DISPOSED_STATUSES}, "is_test_data": {"$ne": True}}, {"_id": 0}
     ).to_list(3000)
     return {v["id"]: v for v in vs}
 
@@ -243,6 +243,7 @@ async def licenses_expiring(days: int = 30, user=Depends(require_user)):
     drivers = await db.drivers.find({
         "license_expiry": {"$gte": today, "$lte": target},
         "status": {"$nin": ["resigned", "terminated"]},
+        "is_test_data": {"$ne": True},
     }, {"_id": 0}).sort("license_expiry", 1).to_list(3000)
     return [{
         "driver_id": d["id"],
