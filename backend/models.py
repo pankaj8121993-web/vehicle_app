@@ -59,7 +59,13 @@ class DriverCreate(BaseModel):
     aadhaar: Optional[str] = None
     license_number: Optional[str] = None
     license_expiry: Optional[str] = None
+    license_categories: Optional[List[str]] = []
     skills: Optional[List[str]] = []
+    esi_number: Optional[str] = None
+    pf_uan_number: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    emergency_contact_mobile: Optional[str] = None
     assigned_vehicle_id: Optional[str] = None
     status: Optional[str] = "active"
     photo_file_id: Optional[str] = None
@@ -208,3 +214,25 @@ class GreasingCreate(BaseModel):
     next_due_km: Optional[float] = None
     file_id: Optional[str] = None
     notes: Optional[str] = None
+
+
+class ComplianceContactCreate(BaseModel):
+    compliance_type: str
+    contact_person_name: str
+    mobile: str
+    email: Optional[str] = None
+    vendor_name: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = True
+
+
+class CalendarEventCreate(BaseModel):
+    title: str
+    date: str
+    time: Optional[str] = None
+    vehicle_id: Optional[str] = None
+    driver_id: Optional[str] = None
+    responsible_person: Optional[str] = None
+    notes: Optional[str] = None
+    recurrence: Optional[str] = None  # weekly | monthly | yearly
+    recurrence_until: Optional[str] = None

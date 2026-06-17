@@ -729,11 +729,14 @@ class TestAuth:
         assert r.status_code == 401
 
     def test_login_and_me(self):
-        # admin should already be force-pw-changed by the test harness
-        username, _ = CREDS["admin"]
-        new_pw = NEW_PASSWORDS["admin"]
-        r = requests.post(f"{API}/auth/login", json={"username": username, "password": new_pw})
-        assert r.status_code == 200
+        # The test harness performs the forced-password rotation. Use whichever password
+        # is currently active (initial or rotated).
+        username = CREDS["admin"][0]
+        for pw in (NEW_PASSWORDS["admin"], CREDS["admin"][1]):
+            r = requests.post(f"{API}/auth/login", json={"username": username, "password": pw})
+            if r.status_code == 200:
+                break
+        assert r.status_code == 200, r.text
         token = r.json()["token"]
         assert r.json()["user"]["role"] == "admin"
         m = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -928,6 +931,154 @@ class TestTestRoleSandbox:
             if doc_id:
                 requests.delete(f"{API}/documents/{doc_id}", headers=h("admin"))
             requests.delete(f"{API}/vehicles/{vid}", headers=h("admin"))
+
+
+# ---------------- Phase 2 / Visibility cluster ----------------
+class TestDriverMasterFields:
+    def test_driver_with_full_statutory_and_license_categories(self):
+        payload = {
+            "name": f"TEST_FULL_{uuid.uuid4().hex[:6]}",
+            "employee_number": "EMP-F001",
+            "license_categories": ["LMV", "HMV"],
+            "esi_number": "ESI-1234567890",
+            "pf_uan_number": "UAN-9876543210",
+            "emergency_contact_name": "Spouse Name",
+            "emergency_contact_relationship": "Spouse",
+            "emergency_contact_mobile": "9000000000",
+        }
+        r = requests.post(f"{API}/drivers", headers=h("admin"), json=payload)
+        assert r.status_code in (200, 201), r.text
+        did = r.json()["id"]
+        try:
+            d = r.json()
+            assert d["license_categories"] == ["LMV", "HMV"]
+            assert d["esi_number"] == "ESI-1234567890"
+            assert d["pf_uan_number"] == "UAN-9876543210"
+            assert d["emergency_contact_mobile"] == "9000000000"
+        finally:
+            requests.delete(f"{API}/drivers/{did}", headers=h("admin"))
+
+
+class TestCompliance:
+    def test_compliance_response_shape(self):
+        r = requests.get(f"{API}/compliance", headers=h("admin"))
+        assert r.status_code == 200
+        body = r.json()
+        for k in ("documents", "licenses", "services", "greasings", "fastag_low", "summary"):
+            assert k in body
+        s = body["summary"]
+        for k in ("total_items", "expired", "expiring_7", "expiring_30", "expiring_90"):
+            assert k in s and isinstance(s[k], int)
+
+    def test_compliance_severity_filter(self):
+        r = requests.get(f"{API}/compliance", headers=h("admin"), params={"severity": "danger"})
+        assert r.status_code == 200
+        for sect in ("documents", "licenses", "services", "greasings", "fastag_low"):
+            for row in r.json()[sect]:
+                assert row["severity"] == "danger"
+
+
+class TestComplianceContacts:
+    def test_crud_and_rbac(self):
+        bad = requests.post(f"{API}/compliance/contacts", headers=h("data_entry"),
+                            json={"compliance_type": "RC", "contact_person_name": "X", "mobile": "9"})
+        assert bad.status_code == 403
+        payload = {"compliance_type": "Insurance", "contact_person_name": f"Test {uuid.uuid4().hex[:4]}",
+                   "mobile": "9988776655", "email": "x@example.com", "vendor_name": "Acme Insurance"}
+        r = requests.post(f"{API}/compliance/contacts", headers=h("management"), json=payload)
+        assert r.status_code in (200, 201), r.text
+        cid = r.json()["id"]
+        try:
+            r2 = requests.get(f"{API}/compliance/contacts", headers=h("driver"))
+            assert r2.status_code == 200
+            assert cid in [c["id"] for c in r2.json()]
+            upd = requests.put(f"{API}/compliance/contacts/{cid}", headers=h("management"),
+                               json={"notes": "test note"})
+            assert upd.status_code == 200
+            assert upd.json()["notes"] == "test note"
+            d_de = requests.delete(f"{API}/compliance/contacts/{cid}", headers=h("data_entry"))
+            assert d_de.status_code == 403
+            d_mgmt = requests.delete(f"{API}/compliance/contacts/{cid}", headers=h("management"))
+            assert d_mgmt.status_code == 403
+        finally:
+            requests.delete(f"{API}/compliance/contacts/{cid}", headers=h("admin"))
+
+    def test_invalid_compliance_type_rejected(self):
+        r = requests.post(f"{API}/compliance/contacts", headers=h("admin"),
+                          json={"compliance_type": "Bogus", "contact_person_name": "X", "mobile": "9"})
+        assert r.status_code == 400
+
+
+class TestCalendar:
+    def test_calendar_returns_events(self):
+        r = requests.get(f"{API}/calendar", headers=h("admin"),
+                         params={"start": "2026-01-01", "end": "2026-12-31"})
+        assert r.status_code == 200
+        body = r.json()
+        assert "events" in body
+        for e in body["events"]:
+            for k in ("id", "title", "date", "type", "severity"):
+                assert k in e
+
+    def test_custom_event_crud(self):
+        payload = {"title": f"Test Event {uuid.uuid4().hex[:4]}", "date": "2026-08-15",
+                   "responsible_person": "Test Person", "notes": "test"}
+        r = requests.post(f"{API}/calendar/events", headers=h("admin"), json=payload)
+        assert r.status_code in (200, 201)
+        eid = r.json()["id"]
+        try:
+            cal = requests.get(f"{API}/calendar", headers=h("admin"),
+                               params={"start": "2026-08-01", "end": "2026-08-31"})
+            ids = [e["id"] for e in cal.json()["events"]]
+            assert eid in ids
+            upd = requests.put(f"{API}/calendar/events/{eid}", headers=h("admin"),
+                               json={"notes": "updated"})
+            assert upd.status_code == 200
+        finally:
+            requests.delete(f"{API}/calendar/events/{eid}", headers=h("admin"))
+
+    def test_recurrence_expansion(self):
+        payload = {"title": f"Weekly {uuid.uuid4().hex[:4]}", "date": "2026-09-01",
+                   "recurrence": "weekly", "recurrence_until": "2026-09-30"}
+        r = requests.post(f"{API}/calendar/events", headers=h("admin"), json=payload)
+        eid = r.json()["id"]
+        try:
+            cal = requests.get(f"{API}/calendar", headers=h("admin"),
+                               params={"start": "2026-09-01", "end": "2026-09-30"})
+            occurrences = [e for e in cal.json()["events"] if e.get("source_id") == eid]
+            # Sep 1, 8, 15, 22, 29 → 5 weekly occurrences
+            assert len(occurrences) == 5
+        finally:
+            requests.delete(f"{API}/calendar/events/{eid}", headers=h("admin"))
+
+
+class TestFleetStatus:
+    def test_fleet_status_shape(self):
+        r = requests.get(f"{API}/fleet-status", headers=h("admin"))
+        assert r.status_code == 200
+        body = r.json()
+        assert "rows" in body and "counts" in body and "total" in body and "as_of" in body
+        for k in ("RUNNING", "IDLE", "UNDER_REPAIR", "DOWNTIME", "DISPOSED"):
+            assert k in body["counts"]
+        assert sum(body["counts"].values()) == body["total"]
+        for row in body["rows"]:
+            assert row["status"] in ("RUNNING", "IDLE", "UNDER_REPAIR", "DOWNTIME", "DISPOSED")
+
+
+class TestVehicleStatistics:
+    def test_statistics_response_shape(self):
+        r = requests.get(f"{API}/vehicles/{SEEDED_VEHICLE_ID}/statistics", headers=h("admin"))
+        assert r.status_code == 200
+        body = r.json()
+        for k in ("lifetime", "mileage_trend", "cost_composition", "monthly_cost_vs_km"):
+            assert k in body
+        L = body["lifetime"]
+        for k in ("total_trips", "total_km", "total_fuel_litres", "total_fuel_cost",
+                  "avg_mileage", "total_services", "total_greasings", "total_repairs",
+                  "total_accidents", "total_operating_cost", "total_downtime_days",
+                  "utilization_pct"):
+            assert k in L
+
 
 
 if __name__ == "__main__":

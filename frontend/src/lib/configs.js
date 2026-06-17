@@ -15,6 +15,16 @@ export const DRIVER_SKILLS = [
   "JCB/Earthmover",
 ];
 
+export const LICENSE_CATEGORIES = [
+  "LMV", "MCWG", "MCWOG", "HMV", "HTV", "LMV-NT", "PSV", "Trailer",
+];
+
+export const RELATIONSHIPS = ["Spouse", "Parent", "Sibling", "Child", "Friend", "Other"];
+
+export const COMPLIANCE_TYPES = [
+  "RC", "Insurance", "Fitness", "Permit", "PUC", "Road Tax", "Fastag", "License", "Other",
+];
+
 const sel = (arr) => arr.map((v) => ({ value: v, label: v }));
 
 export const vehicleConfig = {
@@ -75,9 +85,15 @@ export const driverConfig = {
     { name: "aadhaar", label: "Aadhaar Number" },
     { name: "license_number", label: "License Number" },
     { name: "license_expiry", label: "License Expiry", type: "date" },
+    { name: "license_categories", label: "License Categories", type: "multiselect", options: sel(LICENSE_CATEGORIES) },
     { name: "skills", label: "Driver Skills", type: "multiselect", options: sel(DRIVER_SKILLS) },
     { name: "assigned_vehicle_id", label: "Assigned Vehicle", type: "vehicle" },
     { name: "status", label: "Status", type: "select", options: sel(["active", "on_leave", "resigned", "terminated"]), default: "active" },
+    { name: "esi_number", label: "ESI Number" },
+    { name: "pf_uan_number", label: "PF / UAN Number" },
+    { name: "emergency_contact_name", label: "Emergency Contact Name" },
+    { name: "emergency_contact_relationship", label: "Emergency Contact Relationship", type: "select", options: sel(RELATIONSHIPS) },
+    { name: "emergency_contact_mobile", label: "Emergency Contact Mobile" },
     { name: "exit_date", label: "Exit Date (Resigned/Terminated)", type: "date" },
     { name: "exit_reason", label: "Exit Reason", type: "textarea" },
     { name: "photo_file_id", label: "Photo / License Copy", type: "file" },
@@ -383,6 +399,27 @@ export const greasingConfig = {
     { name: "next_due_date", label: "Next Due Date", type: "date" },
     { name: "next_due_km", label: "Next Due KM", type: "number", suffix: "KM" },
     { name: "file_id", label: "Invoice Upload", type: "file" },
+    { name: "notes", label: "Notes", type: "textarea" },
+  ],
+};
+
+export const complianceContactConfig = {
+  title: "Compliance Contact",
+  endpoint: "compliance/contacts",
+  columns: [
+    { key: "compliance_type", label: "Compliance Type", type: "badge" },
+    { key: "contact_person_name", label: "Contact Name" },
+    { key: "mobile", label: "Mobile" },
+    { key: "email", label: "Email" },
+    { key: "vendor_name", label: "Vendor / Agency" },
+    { key: "is_active", label: "Active", type: "badge" },
+  ],
+  fields: [
+    { name: "compliance_type", label: "Compliance Type", type: "select", options: sel(COMPLIANCE_TYPES), required: true },
+    { name: "contact_person_name", label: "Contact Person Name", required: true },
+    { name: "mobile", label: "Mobile", required: true },
+    { name: "email", label: "Email" },
+    { name: "vendor_name", label: "Vendor / Agency Name" },
     { name: "notes", label: "Notes", type: "textarea" },
   ],
 };

@@ -13,6 +13,10 @@ import VehicleProfile from "@/pages/VehicleProfile";
 import DriverProfile from "@/pages/DriverProfile";
 import Expenses from "@/pages/Expenses";
 import Reports from "@/pages/Reports";
+import Compliance from "@/pages/Compliance";
+import ComplianceContacts from "@/pages/ComplianceContacts";
+import CalendarPage from "@/pages/CalendarPage";
+import FleetStatus from "@/pages/FleetStatus";
 import UserManagement from "@/pages/UserManagement";
 import TestDataAdmin from "@/pages/TestDataAdmin";
 import {
@@ -59,6 +63,10 @@ function AppRouter() {
       <Route path="/downtime" element={<ProtectedRoute><DowntimePage /></ProtectedRoute>} />
       <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+      <Route path="/compliance" element={<ProtectedRoute><Compliance /></ProtectedRoute>} />
+      <Route path="/compliance/contacts" element={<ProtectedRoute roles={["management", "admin"]}><ComplianceContacts /></ProtectedRoute>} />
+      <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
+      <Route path="/fleet-status" element={<ProtectedRoute><FleetStatus /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute roles={["admin"]}><UserManagement /></ProtectedRoute>} />
       <Route path="/admin/test-data" element={<ProtectedRoute roles={["admin"]}><TestDataAdmin /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />

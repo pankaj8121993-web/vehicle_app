@@ -130,6 +130,116 @@ async def delete_vehicle(vid: str, user=Depends(require_role("admin", "test"))):
     return {"ok": True}
 
 
+@router.get("/vehicles/{vid}/statistics")
+async def vehicle_statistics(vid: str, start_date: str = None, end_date: str = None, user=Depends(require_user)):
+    """Per-vehicle lifetime + windowed analytics for the Statistics tab."""
+    vehicle = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    today = datetime.now(timezone.utc)
+    if not end_date:
+        end_date = today.strftime("%Y-%m-%d")
+    if not start_date:
+        start_date = (today - timedelta(days=365)).strftime("%Y-%m-%d")
+
+    # --- Lifetime stats ---
+    trips_all = await db.trips.find({"vehicle_id": vid}, {"_id": 0}).to_list(20000)
+    fuel_all = await db.fuel_entries.find({"vehicle_id": vid}, {"_id": 0}).to_list(20000)
+    services_all = await db.services.count_documents({"vehicle_id": vid})
+    greasings_all = await db.greasings.count_documents({"vehicle_id": vid})
+    repairs_all = await db.repairs.count_documents({"vehicle_id": vid})
+    accidents_all = await db.accidents.count_documents({"vehicle_id": vid})
+    downtimes_all = await db.downtimes.find({"vehicle_id": vid}, {"_id": 0}).to_list(2000)
+
+    total_km = sum(t.get("distance") or 0 for t in trips_all)
+    total_fuel_litres = sum(f.get("quantity") or 0 for f in fuel_all)
+    total_fuel_cost = sum(f.get("amount") or 0 for f in fuel_all)
+    mileages_all = [f["mileage"] for f in fuel_all if f.get("mileage")]
+    avg_mileage = round(sum(mileages_all) / len(mileages_all), 2) if mileages_all else None
+    expenses_all = await gather_expenses(vehicle_id=vid)
+    total_operating_cost = round(sum(r["amount"] for r in expenses_all), 2)
+    downtime_days_total = sum(d.get("days") or 0 for d in downtimes_all)
+
+    # Utilization within the period window
+    trips_in = [t for t in trips_all if t.get("date") and start_date <= t["date"] <= end_date]
+    distinct_dates = {t["date"] for t in trips_in if t.get("date")}
+    try:
+        sd = datetime.fromisoformat(start_date).date()
+        ed = datetime.fromisoformat(end_date).date()
+        window_days = max((ed - sd).days + 1, 1)
+    except (ValueError, TypeError):
+        window_days = 365
+    utilization_pct = round((len(distinct_dates) / window_days) * 100, 1) if window_days else 0
+
+    # --- Mileage trend (per month within window) ---
+    months = []
+    try:
+        cur = datetime.fromisoformat(start_date).date().replace(day=1)
+        end_month = datetime.fromisoformat(end_date).date().replace(day=1)
+        while cur <= end_month:
+            months.append(f"{cur.year:04d}-{cur.month:02d}")
+            ny = cur.year + (1 if cur.month == 12 else 0)
+            nm = 1 if cur.month == 12 else cur.month + 1
+            cur = cur.replace(year=ny, month=nm)
+    except (ValueError, TypeError):
+        pass
+
+    def _label(m):
+        y, mo = m.split("-")
+        return datetime(int(y), int(mo), 1).strftime("%b %y")
+
+    mileage_trend = []
+    for m in months:
+        in_m = [f for f in fuel_all if (f.get("date") or "")[:7] == m and f.get("mileage")]
+        mileage_trend.append({
+            "month": m, "label": _label(m),
+            "avg_mileage": round(sum(f["mileage"] for f in in_m) / len(in_m), 2) if in_m else None,
+            "entries": len(in_m),
+        })
+
+    # --- Cost composition (within window) ---
+    expenses_in = await gather_expenses(vehicle_id=vid, start_date=start_date, end_date=end_date)
+    by_cat = {}
+    for r in expenses_in:
+        by_cat[r["category"]] = by_cat.get(r["category"], 0) + r["amount"]
+    total_in = sum(by_cat.values()) or 1
+    cost_composition = [
+        {"category": c, "amount": round(a, 2), "pct": round(a / total_in * 100, 1)}
+        for c, a in sorted(by_cat.items(), key=lambda x: -x[1])
+    ]
+
+    # --- Monthly cost vs km (within window) ---
+    monthly_cost_vs_km = []
+    for m in months:
+        cost = sum(r["amount"] for r in expenses_in if (r.get("date") or "")[:7] == m)
+        km = sum(t.get("distance") or 0 for t in trips_all if (t.get("date") or "")[:7] == m)
+        monthly_cost_vs_km.append({
+            "month": m, "label": _label(m),
+            "cost": round(cost, 2), "km": round(km, 1),
+        })
+
+    return {
+        "lifetime": {
+            "total_trips": len(trips_all),
+            "total_km": round(total_km, 1),
+            "total_fuel_litres": round(total_fuel_litres, 2),
+            "total_fuel_cost": round(total_fuel_cost, 2),
+            "avg_mileage": avg_mileage,
+            "total_services": services_all,
+            "total_greasings": greasings_all,
+            "total_repairs": repairs_all,
+            "total_accidents": accidents_all,
+            "total_operating_cost": total_operating_cost,
+            "total_downtime_days": downtime_days_total,
+            "utilization_pct": utilization_pct,
+        },
+        "mileage_trend": mileage_trend,
+        "cost_composition": cost_composition,
+        "monthly_cost_vs_km": monthly_cost_vs_km,
+    }
+
+
 @router.get("/vehicles/{vid}/summary")
 async def vehicle_summary(vid: str, user=Depends(require_user)):
     vehicle = await db.vehicles.find_one({"id": vid}, {"_id": 0})

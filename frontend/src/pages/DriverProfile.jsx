@@ -82,6 +82,13 @@ export default function DriverProfile() {
                 ))}
               </div>
             )}
+            {Array.isArray(d.license_categories) && d.license_categories.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1" data-testid="driver-license-categories">
+                {d.license_categories.map((c) => (
+                  <span key={c} className="border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wide text-blue-800">{c}</span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="text-right">
@@ -89,6 +96,28 @@ export default function DriverProfile() {
           <ExpiryBadge date={d.license_expiry} />
         </div>
       </div>
+
+      {(d.esi_number || d.pf_uan_number || d.aadhaar || d.emergency_contact_name) && (
+        <div className="mb-6 border border-slate-200 bg-white p-5" data-testid="driver-personal-card">
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Personal & Statutory</p>
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            {d.aadhaar && <div><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Aadhaar</p><p className="font-mono text-sm text-slate-900">{d.aadhaar}</p></div>}
+            {d.esi_number && <div><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">ESI Number</p><p className="font-mono text-sm text-slate-900">{d.esi_number}</p></div>}
+            {d.pf_uan_number && <div><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">PF / UAN</p><p className="font-mono text-sm text-slate-900">{d.pf_uan_number}</p></div>}
+            {d.address && <div className="sm:col-span-2"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Address</p><p className="text-sm text-slate-900">{d.address}</p></div>}
+            {(d.emergency_contact_name || d.emergency_contact_mobile) && (
+              <div className="sm:col-span-2 lg:col-span-3 mt-2 border-t border-slate-100 pt-3">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Emergency Contact</p>
+                <p className="text-sm text-slate-900" data-testid="driver-emergency-contact">
+                  <span className="font-semibold">{d.emergency_contact_name || "—"}</span>
+                  {d.emergency_contact_relationship && <span className="ml-2 text-slate-500">({d.emergency_contact_relationship})</span>}
+                  {d.emergency_contact_mobile && <a href={`tel:${d.emergency_contact_mobile}`} className="ml-3 inline-flex items-center gap-1 font-mono text-blue-700 hover:underline"><Phone className="h-3 w-3" />{d.emergency_contact_mobile}</a>}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         <Stat label="Total Trips" testId="driver-stat-trips">{fmtNum(stats.total_trips)}</Stat>

@@ -9,11 +9,15 @@ import {
   LayoutDashboard, Truck, Users, FileText, Route, Fuel, Wrench, Hammer,
   CircleDot, AlertTriangle, Radio, Clock, IndianRupee, BarChart3, LogOut, Menu,
   ChevronDown, KeyRound, ShieldCheck, TestTube, FlaskConical,
+  ShieldAlert, Calendar, Activity,
 } from "lucide-react";
 
 const BASE_NAV = [
   { group: "OVERVIEW", items: [
     { to: "/", label: "Dashboard", icon: LayoutDashboard },
+    { to: "/fleet-status", label: "Fleet Status", icon: Activity },
+    { to: "/compliance", label: "Compliance", icon: ShieldAlert },
+    { to: "/calendar", label: "Calendar", icon: Calendar },
     { to: "/reports", label: "Reports", icon: BarChart3 },
   ]},
   { group: "FLEET", items: [
@@ -39,11 +43,21 @@ const BASE_NAV = [
 const ADMIN_GROUP = {
   group: "ADMINISTRATION", items: [
     { to: "/users", label: "User Management", icon: ShieldCheck },
+    { to: "/compliance/contacts", label: "Compliance Contacts", icon: Radio },
     { to: "/admin/test-data", label: "Test Data", icon: TestTube },
   ],
 };
 
-const buildNav = (role) => (role === "admin" ? [...BASE_NAV, ADMIN_GROUP] : BASE_NAV);
+const buildNav = (role) => {
+  const out = [...BASE_NAV];
+  if (role === "management") {
+    out.push({ group: "ADMINISTRATION", items: [
+      { to: "/compliance/contacts", label: "Compliance Contacts", icon: Radio },
+    ]});
+  }
+  if (role === "admin") out.push(ADMIN_GROUP);
+  return out;
+};
 
 const SidebarContent = ({ onNavigate, role }) => {
   const nav = buildNav(role);

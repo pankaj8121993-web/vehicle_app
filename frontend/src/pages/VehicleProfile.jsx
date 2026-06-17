@@ -7,6 +7,7 @@ import { CrudModule } from "@/components/CrudModule";
 import { ExpenseLedger } from "@/components/ExpenseLedger";
 import { CloseTripAction, RepairWorkflowAction } from "@/pages/ModulePages";
 import { VehiclePhotos } from "@/components/VehiclePhotos";
+import { VehicleStatistics } from "@/components/VehicleStatistics";
 import {
   documentConfig, tripConfig, fuelConfig, serviceConfig, repairConfig,
   tyreConfig, tyreEventConfig, accidentConfig, downtimeConfig, fastagConfig,
@@ -25,6 +26,7 @@ const Stat = ({ label, children, testId }) => (
 
 const TABS = [
   { value: "photos", label: "Photos" },
+  { value: "statistics", label: "Statistics" },
   { value: "documents", label: "Documents" },
   { value: "trips", label: "Trips" },
   { value: "fuel", label: "Fuel" },
@@ -138,6 +140,7 @@ export default function VehicleProfile() {
 
         <div className="mt-5">
           <TabsContent value="photos"><VehiclePhotos vehicleId={id} photoIds={v.photo_file_ids || []} readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="statistics"><VehicleStatistics vehicleId={id} /></TabsContent>
           <TabsContent value="documents"><CrudModule {...documentConfig} fixedFilters={ff} testIdPrefix="vp-documents" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="trips"><CrudModule {...tripConfig} fixedFilters={ff} rowActions={isDisposed ? undefined : CloseTripAction} testIdPrefix="vp-trips" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="fuel"><CrudModule {...fuelConfig} fixedFilters={ff} testIdPrefix="vp-fuel" readOnly={isDisposed} /></TabsContent>
