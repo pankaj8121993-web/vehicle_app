@@ -57,6 +57,18 @@ org_admin→admin · owner/fleet_manager→management · operations/maintenance/
   suspicion, missing attachments, budget overshoot — all data-driven.
 - Budgets per category+month (duplicate-rejected), /budgets/status with variance & unbudgeted spend.
 
+## Role-based module access (added after user bug report — July 2026)
+- `MODULE_ACCESS` matrix in `backend/auth.py` (single source of truth):
+  driver → dashboard, documents, trips, fuel, repairs, accidents only;
+  maintenance → operational modules, no reports/expenses;
+  accounts → + reports/expenses/budgets; viewer → read-only everything;
+  management tier → all but users/test-data; admin tier → all.
+- Enforced server-side via `require_module()` + `make_crud(module=...)` (403s),
+  mirrored client-side: login//auth/me//demo/enter return `user.modules`;
+  Layout filters sidebar via NAV_MODULE map; ProtectedRoute takes `module` prop.
+- Intentional: GET /api/vehicles + /api/drivers/active stay open to drivers (form dropdowns).
+- Coverage: /app/backend/tests/test_rbac_matrix.py (32 tests) + iteration_6.json (100%).
+
 ## Delivered (this session — July 2026)
 - Phase 1: Multi-tenant core + full FleetFlow rebrand (PWA manifest, icons, title, SW).
 - Phase 2: Landing page, 6-step onboarding, premium login, demo environment.

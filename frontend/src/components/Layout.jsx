@@ -181,7 +181,7 @@ export const Layout = ({ children }) => {
             <p className="font-heading text-sm font-bold tracking-tight text-slate-900 lg:hidden">FleetFlow</p>
           </div>
           <div className="hidden flex-1 px-6 lg:block">
-            {(!user?.modules || user.modules.includes("search")) && <GlobalSearch />}
+            {user?.modules?.includes("search") && <GlobalSearch />}
           </div>
           <div className="flex items-center gap-3">
             <DropdownMenu>
