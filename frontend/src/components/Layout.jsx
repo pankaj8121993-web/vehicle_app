@@ -125,7 +125,7 @@ export const Layout = ({ children }) => {
 
   const handleExitDemo = async () => {
     await logout();
-    navigate("/");
+    window.location.href = "/";
   };
 
   return (

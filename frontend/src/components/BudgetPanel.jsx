@@ -15,6 +15,16 @@ const monthLabel = (m) => {
   return new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 };
 
+const lastMonths = (n = 13) => {
+  const out = [];
+  const d = new Date();
+  for (let i = 0; i < n; i++) {
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    d.setMonth(d.getMonth() - 1);
+  }
+  return out;
+};
+
 export const BudgetPanel = () => {
   const { user } = useAuth();
   const canEdit = !["driver", "viewer"].includes(roleTier(user?.role));
@@ -65,7 +75,14 @@ export const BudgetPanel = () => {
   return (
     <div data-testid="budget-panel">
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="budget-month-input" className="w-44 rounded-none" />
+        <Select value={month} onValueChange={setMonth}>
+          <SelectTrigger data-testid="budget-month-input" className="w-52 rounded-none bg-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {lastMonths().map((m) => <SelectItem key={m} value={m}>{monthLabel(m)}</SelectItem>)}
+          </SelectContent>
+        </Select>
         {canEdit && (
           <Button onClick={() => setOpen(true)} data-testid="budget-add-btn" className="rounded-none bg-slate-900 text-white hover:bg-slate-800">
             <Plus className="mr-1.5 h-4 w-4" /> Set Budget

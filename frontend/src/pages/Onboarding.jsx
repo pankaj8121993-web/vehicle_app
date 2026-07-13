@@ -324,7 +324,7 @@ export default function Onboarding() {
             <ArrowLeft className="mr-2 h-4 w-4" /> {step === 0 ? "Back to home" : "Previous"}
           </Button>
           {step < 5 ? (
-            <Button onClick={next} data-testid="onb-next-btn" className="rounded-none bg-slate-900 px-8 text-white hover:bg-slate-800">
+            <Button onClick={next} disabled={step === 0 && !f.org_type} data-testid="onb-next-btn" className="rounded-none bg-slate-900 px-8 text-white hover:bg-slate-800">
               Next <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           ) : (
