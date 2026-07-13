@@ -137,6 +137,10 @@ export const GlobalSearch = () => {
             </div>
           )}
 
+          {!loading && q.trim().length >= 1 && q.trim().length < 2 && (
+            <p className="px-4 py-6 text-center text-xs text-slate-400" data-testid="global-search-min-hint">Type at least 2 characters</p>
+          )}
+
           {!loading && q.trim().length < 2 && recent.length > 0 && (
             <div className="p-2">
               <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">Recent searches</p>

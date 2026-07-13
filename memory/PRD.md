@@ -1,52 +1,125 @@
 # PRD — Rajguru Foods Fleet & Vehicle Management System
 
-## Original Problem Statement
-Build a centralized Fleet & Vehicle Management System for Rajguru Foods: a complete digital vehicle file and fleet ERP covering vehicle master, document management with expiry alerts, drivers, trips, fuel, maintenance, breakdown/repairs, tyres, accidents, Fastag, downtime, expenses, alerts, dashboards and reports — accessible on web & mobile with role-based access (Driver, Data Entry Operator, Fleet Manager, Management). Currency: INR (₹); distances in KM.
+## Original problem statement
+A centralized Fleet & Vehicle Management System to serve as a complete digital
+repository and operational management platform for all company vehicles.
+Accessible through web and mobile devices. Role-based access for admin,
+management, data-entry, driver, and test-sandbox users. Complete life-cycle
+tracking: vehicles, drivers, trips, fuel, maintenance, greasing, tickets,
+tyres, accidents, downtime, expenses, compliance, calendar, fleet status,
+statistics, vendors, global search, PWA install.
 
-## User Choices
-- Auth: REMOVED — role-picker at /login → 4 profiles, X-Role header
-  - Driver: create trips/fuel/breakdown reports only
-  - Data Entry Operator: create + edit + uploads; no delete
-  - Management: data_entry rights + approve repairs + dispose vehicles + exit drivers
-  - Admin: full control including delete
-- INR + KM; Excel + PDF exports; Fastag simulated sync; multi-photo per vehicle
+## Core users & personas
+- **Admin (`admin`)** — full access, user management, purge test data.
+- **Management (`management`)** — approvals (ticket approve/close/reject), all
+  reports & dashboards.
+- **Data entry (`data_entry`)** — creates most operational records; cannot
+  approve/close tickets.
+- **Driver (`driver`)** — mobile home screen with 8 quick actions; can log
+  trips, fuel, breakdowns, accidents, expenses.
+- **Test (`test`)** — sandbox role; every record is stamped `is_test_data`.
+
+## Delivered features (Feb 2026)
+### Phase 1
+- Vehicle disposal (sold/scrapped) with banner + read-only lock.
+- Driver exit flow.
+- Dashboard clickable drilldowns, period filters, print/export.
+
+### Checkpoint 1
+- Greasing module + phase-1.5 patches, driver enrichment.
+
+### Checkpoint 2 — Real authentication
+- JWT bearer tokens, forced-password-change on first login.
+- User Management page (admin only), TestDataAdmin page.
+- `test` role sandbox tagging + admin `?include_test=true` opt-in.
+
+### Commit A (Checkpoint 3 + E1 + E2)
+- Compliance dashboard with contacts directory.
+- Fleet Calendar (recurring events).
+- Fleet Status Board.
+- Per-vehicle Statistics tab (lifetime + trend charts).
+
+### Commit B (Checkpoint 4 + E3 + Checkpoint 5) — **This session**
+- **CP4 Service Tickets** — 7-stage workflow
+  `Open → Under Review → Approved → Sent for Repair → In Repair → Repaired → Closed`
+  with auto TKT-YYYY-NNNN numbering, timeline UI, per-stage timestamps + actor
+  attribution, photo uploads (max 8), reject-back-to-open with reason, RBAC
+  gates (Approve/Close/Reject → management+), backfill migration on startup.
+- **E3 Vendor Master** — dedicated CRUD (`vendors`), 8 vendor types, active
+  flag, GST/mobile/email/address. "Pick from saved vendors" dropdown in
+  service and repair forms auto-fills the free-text vendor field.
+- **CP5 Global Search** — `/api/search?q=` across vehicles/drivers/tickets/
+  documents; debounced 300 ms, grouped dropdown, keyboard navigation, recent
+  searches (localStorage, 5 entries), test-data & disposed records excluded.
+- **CP5 PWA** — manifest, service worker (never caches `/api/*`), placeholder
+  icons (192/512 PNG), `beforeinstallprompt` capture, dismissible install
+  prompt with 30-day cooldown, worker registration in `index.js`.
+- **CP5 Driver Mobile Home** — 8 quick-action tiles (`/` for `role=driver`):
+  Start Trip, End Trip (contextual disabled), Add Fuel, Report Breakdown,
+  Report Accident, Upload Invoice, View Documents, Call Fleet Manager (env
+  `REACT_APP_FLEET_MANAGER_PHONE`; disabled when unset).
+
+## Test posture
+- Backend: **94/94 pytest cases** passing (`/app/backend/tests/`).
+  Added `TestVendors` (4), `TestTicketWorkflow` (6), `TestGlobalSearch` (4).
+- Session-scoped `conftest.py` restores default seeded passwords after every
+  pytest run so manual UI login continues to work.
+- Frontend: `testing_agent_v3_fork` regression pass 4 → ~98%.
+  1 minor UI nit auto-fixed: TicketDetail drawer subtitle vehicle_number
+  preservation across PATCH updates.
 
 ## Architecture
-- **Backend**: FastAPI (port 8001, /api prefix), MongoDB (motor)
-  - `auth.py` — role enforcement via X-Role header
-  - `routes_core.py` — vehicles, drivers, documents, file storage. Phase 1: driver exit + vehicle disposal management.
-  - `routes_ops.py` — trips, fuel, services, repairs (approval workflow)
-  - `routes_assets.py` — tyres, tyre-events, accidents, fastag (incl. simulated /sync), downtime, expenses + ledger
-  - `routes_analytics.py` — /dashboard, /alerts, /dashboard/trends, /reports (13 reports), exports (Excel/PDF). Phase 1: excludes sold/scrapped vehicles everywhere.
-  - `routes_drilldowns.py` (Phase 1, NEW) — 9 dashboard drilldown endpoints under /api/drilldowns/
-  - `helpers.py` — generic CRUD factory (`make_crud`) with date_field filtering + vehicle/driver enrichment + `gather_expenses`
-- **Frontend**: React + shadcn + Tailwind. Swiss/high-contrast theme, dark slate sidebar.
-  - `CrudModule.jsx` (Phase 1: + `readOnly` prop + driver dropdown uses /drivers/active)
-  - `PeriodFilter.jsx` (Phase 1, NEW) — 9 presets (All/Today/Yesterday/This Week/Month/Last Month/Quarter/Year/Custom)
-  - `DrillDownDialog.jsx` (Phase 1, NEW) — generic drilldown modal with row→navigate
-  - Pages: Dashboard (clickable cards + drilldowns), Vehicles (Include Disposed toggle), VehicleProfile (disposal banner + readOnly tabs when sold/scrapped), Drivers, Trips/Fuel/Maintenance/Repairs/Tyres/Fastag/Downtime/Expenses (all gained PeriodFilter in Phase 1), Reports (Print button + @media print stylesheet)
+```
+/app/
+├── backend/
+│   ├── auth.py, database.py, helpers.py, models.py
+│   ├── routes_analytics.py, routes_assets.py, routes_calendar.py,
+│   │   routes_compliance.py, routes_core.py, routes_drilldowns.py,
+│   │   routes_fleet_status.py, routes_ops.py, routes_search.py,
+│   │   routes_vendors.py
+│   ├── server.py         # startup: user seed + ticket migrations
+│   └── tests/
+│       ├── conftest.py   # session-teardown restores seeded passwords
+│       └── test_fleet_backend.py  (94 tests)
+└── frontend/
+    ├── public/
+    │   ├── manifest.json, service-worker.js
+    │   └── icon-192.png, icon-512.png
+    └── src/
+        ├── App.js  (HomeRoute: Dashboard vs DriverHome)
+        ├── components/
+        │   ├── CrudModule.jsx  (vendor_picker + boolean field types)
+        │   ├── GlobalSearch.jsx
+        │   ├── InstallPrompt.jsx
+        │   ├── Layout.jsx  (Vendors nav + GlobalSearch in header)
+        │   └── TicketDetail.jsx
+        ├── lib/configs.js  (vendorConfig, TICKET_CATEGORIES, VENDOR_TYPES)
+        └── pages/
+            ├── DriverHome.jsx
+            ├── Vendors.jsx
+            └── … existing pages
+```
 
-## What's Implemented
+## API surface (highlights)
+- Auth: `/api/auth/login`, `/auth/me`, `/auth/change-password`
+- Users: `/api/users`, `/api/admin/purge-test-data`
+- Vehicles / drivers / documents / trips / fuel / services / greasings /
+  tyres / tyre_events / accidents / fastag / downtime / expenses.
+- Tickets: `POST/PUT/DELETE /api/repairs`, `PATCH /api/repairs/{id}/status`
+- Vendors: `GET/POST/PUT/DELETE /api/vendors`
+- Search: `GET /api/search?q=`
+- Analytics: `/api/dashboard`, `/api/dashboard/trends`, `/api/reports/*`
+- Compliance: `/api/compliance`, `/api/compliance-contacts`
+- Calendar: `/api/calendar`
+- Fleet status: `/api/fleet-status`
+- Statistics: `/api/vehicles/{id}/statistics`
 
-### Iteration 1 & 2 (2026-06-11) — MVP — 27/27 tests
-All 12 modules + role picker + pagination + driver profile + dashboard trends + photo gallery + simulated Fastag sync.
+## Backlog (P1 / polish tier — not in scope of Commit B)
+- Notifications: email/SMS for compliance expiries + ticket state changes.
+- Server-side pagination for global search when result sets grow.
+- Real hi-res "RF" icon set from a designer.
+- Deeper offline support (currently: app-shell only; forms are online-only).
+- Driver ↔ user_id linkage on `drivers` collection (currently name-match).
 
-### Phase 1 (2026-06-15) — 48/48 tests, all flows verified
-- **Driver Exit Management** — statuses active/on_leave/resigned/terminated + exit_date + exit_reason. Management/admin RBAC for terminal status. Auto-exit-date. Auto-unassign. Delete blocked if trips/fuel/accidents exist. NEW `GET /api/drivers/active` for form dropdowns.
-- **Vehicle Disposal Management** — statuses sold/scrapped + disposal_date + sale_value + buyer_name + buyer_contact + disposal_remarks. Management/admin RBAC. Auto-disposal-date. Auto-close open downtimes. Auto-unassign drivers. Cascade-delete REMOVED. Delete blocked when history exists. `include_disposed` query on /vehicles (default false). Dashboard / alerts / trends EXCLUDE disposed vehicles. Disposal banner + read-only tabs on profile.
-- **PeriodFilter Component** — wired into Trips, Fuel, Maintenance, Repairs, Tyres, Fastag, Downtime, Expenses.
-- **Clickable Dashboard Widgets** — 9 metric cards + list items open `DrillDownDialog`. New `routes_drilldowns.py` with 9 endpoints (docs_expiring, docs_expired, vehicles_under_repair, service_due, top_fuel_consumers, top_cost_vehicles, low_mileage_vehicles, licenses_expiring, active_trips) — all exclude sold/scrapped vehicles.
-- **Print Export** — `Print` button on Reports + `@media print` CSS (hides sidebar/header/buttons/filters, repeats table headers per page, prints in A4 landscape).
-
-## Test Setup
-- No auth. Backend: `X-Role` header. Frontend: localStorage `fleet_role`.
-- pytest: `/app/backend/tests/test_fleet_backend.py` — 48 tests.
-- E2E iteration reports: `/app/test_reports/iteration_1.json`, `iteration_2.json`, `iteration_3.json` (Phase 1).
-
-## Backlog / Next Tasks
-- P1: Email/SMS expiry notifications (SendGrid/Twilio) — deferred by user
-- P2: Real Fastag API integration when bank API access available
-- P2: Charts on vehicle profile; monthly/yearly expense trend filters
-- P2: Multi-file attachments per record
-- P2: Audit trail of edits
-- P2: Vehicle File PDF — single-shot full profile export
+## Seeded users (post-conftest teardown)
+Refer to `/app/memory/test_credentials.md`.

@@ -162,7 +162,10 @@ export default function VehicleProfile() {
               ticket={activeTicket}
               open={!!activeTicket}
               onClose={() => setActiveTicket(null)}
-              onUpdated={(updated) => { setActiveTicket(updated); setTicketRefreshKey((k) => k + 1); }}
+              onUpdated={(updated) => {
+                setActiveTicket((prev) => ({ ...(prev || {}), ...updated, vehicle_number: updated.vehicle_number || prev?.vehicle_number }));
+                setTicketRefreshKey((k) => k + 1);
+              }}
             />
           </TabsContent>
           <TabsContent value="tyres">

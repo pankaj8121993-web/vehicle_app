@@ -114,7 +114,9 @@ export const RepairsPage = () => {
   const [activeTicket, setActiveTicket] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const handleUpdated = (updated) => {
-    setActiveTicket(updated);
+    // Preserve enriched fields (vehicle_number, driver_name, etc.) that
+    // list GET populates but PATCH responses may omit.
+    setActiveTicket((prev) => ({ ...(prev || {}), ...updated, vehicle_number: updated.vehicle_number || prev?.vehicle_number }));
     setRefreshKey((k) => k + 1);
   };
   return (
