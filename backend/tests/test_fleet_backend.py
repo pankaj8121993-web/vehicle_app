@@ -80,9 +80,11 @@ class TestRoles:
         r = requests.get(f"{API}/roles", headers=h("admin"))
         assert r.status_code == 200
         data = r.json()
-        assert isinstance(data, list) and len(data) == 5
+        assert isinstance(data, list) and len(data) == 12
         roles = [d["role"] for d in data]
-        assert set(roles) == {"driver", "data_entry", "management", "admin", "test"}
+        assert {"driver", "data_entry", "management", "admin", "test",
+                "org_admin", "owner", "fleet_manager", "operations",
+                "maintenance", "accounts", "viewer"} == set(roles)
         for d in data:
             assert "label" in d and "rights" in d
 

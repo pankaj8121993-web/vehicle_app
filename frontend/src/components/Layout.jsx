@@ -4,18 +4,18 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
-import { ROLE_LABELS } from "@/lib/format";
+import { ROLE_LABELS, roleTier } from "@/lib/format";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import {
   LayoutDashboard, Truck, Users, FileText, Route, Fuel, Wrench, Hammer,
   CircleDot, AlertTriangle, Radio, Clock, IndianRupee, BarChart3, LogOut, Menu,
   ChevronDown, KeyRound, ShieldCheck, TestTube, FlaskConical,
-  ShieldAlert, Calendar, Activity, Building2,
+  ShieldAlert, Calendar, Activity, Building2, Settings, Eye,
 } from "lucide-react";
 
 const BASE_NAV = [
   { group: "OVERVIEW", items: [
-    { to: "/", label: "Dashboard", icon: LayoutDashboard },
+    { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/fleet-status", label: "Fleet Status", icon: Activity },
     { to: "/compliance", label: "Compliance", icon: ShieldAlert },
     { to: "/calendar", label: "Calendar", icon: Calendar },
@@ -44,6 +44,7 @@ const BASE_NAV = [
 
 const ADMIN_GROUP = {
   group: "ADMINISTRATION", items: [
+    { to: "/settings/organisation", label: "Organisation", icon: Settings },
     { to: "/users", label: "User Management", icon: ShieldCheck },
     { to: "/compliance/contacts", label: "Compliance Contacts", icon: Radio },
     { to: "/admin/test-data", label: "Test Data", icon: TestTube },
@@ -51,23 +52,35 @@ const ADMIN_GROUP = {
 };
 
 const buildNav = (role) => {
+  const tier = roleTier(role);
   const out = [...BASE_NAV];
-  if (role === "management") {
+  if (tier === "management") {
     out.push({ group: "ADMINISTRATION", items: [
+      { to: "/settings/organisation", label: "Organisation", icon: Settings },
       { to: "/compliance/contacts", label: "Compliance Contacts", icon: Radio },
     ]});
   }
-  if (role === "admin") out.push(ADMIN_GROUP);
+  if (tier === "admin") out.push(ADMIN_GROUP);
   return out;
 };
 
-const SidebarContent = ({ onNavigate, role }) => {
+const SidebarContent = ({ onNavigate, role, orgName }) => {
   const nav = buildNav(role);
   return (
     <div className="flex h-full flex-col bg-slate-900 text-slate-300">
       <div className="border-b border-slate-800 px-5 py-5">
-        <p className="font-heading text-lg font-black uppercase tracking-tight text-white">Rajguru Foods</p>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">Fleet Command</p>
+        <div className="flex items-center gap-2">
+          <span className="grid h-8 w-8 place-items-center bg-amber-400 text-slate-950">
+            <Truck className="h-4.5 w-4.5" strokeWidth={2.4} />
+          </span>
+          <div>
+            <p className="font-heading text-lg font-black leading-none tracking-tighter text-white">FleetFlow</p>
+            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">Fleet Operations</p>
+          </div>
+        </div>
+        {orgName && (
+          <p className="mt-3 truncate border-l-2 border-amber-400/60 pl-2 text-[11px] font-semibold text-slate-400" data-testid="sidebar-org-name">{orgName}</p>
+        )}
       </div>
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         {nav.map((g) => (
@@ -77,7 +90,7 @@ const SidebarContent = ({ onNavigate, role }) => {
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === "/"}
+                end={item.to === "/dashboard"}
                 onClick={onNavigate}
                 data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
                 className={({ isActive }) =>
@@ -110,13 +123,28 @@ export const Layout = ({ children }) => {
   const role = user?.role;
   const initials = (user?.full_name || user?.username || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
+  const handleExitDemo = async () => {
+    await logout();
+    navigate("/");
+  };
+
   return (
     <div className="flex min-h-screen bg-slate-50">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 lg:block">
-        <SidebarContent role={role} />
+        <SidebarContent role={role} orgName={user?.org_name} />
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col lg:pl-56">
+        {user?.is_demo && (
+          <div className="flex items-center justify-center gap-3 border-b border-amber-300 bg-amber-400 px-4 py-2 text-center text-xs font-bold uppercase tracking-[0.12em] text-slate-950" data-testid="demo-banner">
+            <Eye className="h-3.5 w-3.5" />
+            Demo Environment — changes do not affect live data
+            <button onClick={handleExitDemo} data-testid="exit-demo-btn"
+              className="ml-2 border border-slate-950/40 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider transition-colors hover:bg-slate-950 hover:text-amber-400">
+              Exit Demo
+            </button>
+          </div>
+        )}
         {role === "test" && (
           <div className="border-b border-amber-300 bg-amber-100 px-4 py-2 text-center text-xs font-bold uppercase tracking-[0.12em] text-amber-900" data-testid="test-mode-banner">
             <FlaskConical className="-mt-0.5 mr-1.5 inline h-3.5 w-3.5" />
@@ -134,10 +162,10 @@ export const Layout = ({ children }) => {
               <SheetContent side="left" className="w-56 border-0 p-0">
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
                 <SheetDescription className="sr-only">Main navigation menu</SheetDescription>
-                <SidebarContent role={role} onNavigate={() => setMobileOpen(false)} />
+                <SidebarContent role={role} orgName={user?.org_name} onNavigate={() => setMobileOpen(false)} />
               </SheetContent>
             </Sheet>
-            <p className="font-heading text-sm font-bold uppercase tracking-wide text-slate-500 lg:hidden">Rajguru Fleet</p>
+            <p className="font-heading text-sm font-bold tracking-tight text-slate-900 lg:hidden">FleetFlow</p>
           </div>
           <div className="hidden flex-1 px-6 lg:block">
             <GlobalSearch />

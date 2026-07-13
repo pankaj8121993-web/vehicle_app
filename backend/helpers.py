@@ -49,6 +49,8 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
 
     @router.post(f"/{path}")
     async def create_item(payload: CreateModel, user=Depends(require_user)):
+        if user["role"] == "viewer":
+            raise HTTPException(status_code=403, detail="Viewers have read-only access")
         if user["role"] == "driver" and not driver_can_create:
             raise HTTPException(status_code=403, detail="Drivers can only add trips, fuel entries and breakdown reports")
         doc = payload.model_dump()
@@ -102,39 +104,49 @@ async def gather_expenses(vehicle_id=None, start_date=None, end_date=None, inclu
     rows = []
     for f in await db.fuel_entries.find(q(), {"_id": 0}).to_list(5000):
         rows.append({"date": f.get("date"), "vehicle_id": f["vehicle_id"], "category": "Fuel",
-                     "amount": f.get("amount") or 0, "description": f.get("station") or "Fuel purchase"})
+                     "amount": f.get("amount") or 0, "description": f.get("station") or "Fuel purchase",
+                     "source": "fuel", "source_id": f.get("id")})
     for s in await db.services.find(q(), {"_id": 0}).to_list(5000):
         rows.append({"date": s.get("date"), "vehicle_id": s["vehicle_id"], "category": "Service",
-                     "amount": s.get("cost") or 0, "description": s.get("service_type") or "Service"})
+                     "amount": s.get("cost") or 0, "description": s.get("service_type") or "Service",
+                     "source": "maintenance", "source_id": s.get("id")})
     for g in await db.greasings.find(q(), {"_id": 0}).to_list(5000):
         if g.get("cost"):
             rows.append({"date": g.get("date"), "vehicle_id": g["vehicle_id"], "category": "Greasing",
-                         "amount": g.get("cost") or 0, "description": "Greasing"})
+                         "amount": g.get("cost") or 0, "description": "Greasing",
+                         "source": "maintenance", "source_id": g.get("id")})
     for r in await db.repairs.find(q(), {"_id": 0}).to_list(5000):
         rows.append({"date": r.get("date"), "vehicle_id": r["vehicle_id"], "category": "Repair",
-                     "amount": r.get("cost") or 0, "description": r.get("issue") or "Repair"})
+                     "amount": r.get("cost") or 0, "description": r.get("issue") or "Repair",
+                     "source": "repairs", "source_id": r.get("id"), "reference": r.get("ticket_number")})
     for t in await db.tyres.find(q("installation_date"), {"_id": 0}).to_list(5000):
         if t.get("cost"):
             rows.append({"date": t.get("installation_date"), "vehicle_id": t["vehicle_id"], "category": "Tyres",
-                         "amount": t.get("cost") or 0, "description": f"Tyre {t.get('tyre_number', '')}"})
+                         "amount": t.get("cost") or 0, "description": f"Tyre {t.get('tyre_number', '')}",
+                         "source": "tyres", "source_id": t.get("id")})
     for e in await db.tyre_events.find(q(), {"_id": 0}).to_list(5000):
         if e.get("cost"):
             rows.append({"date": e.get("date"), "vehicle_id": e.get("vehicle_id"), "category": "Tyres",
-                         "amount": e.get("cost") or 0, "description": e.get("event_type") or "Tyre event"})
+                         "amount": e.get("cost") or 0, "description": e.get("event_type") or "Tyre event",
+                         "source": "tyres", "source_id": e.get("id")})
     for a in await db.accidents.find(q(), {"_id": 0}).to_list(5000):
         if a.get("repair_cost"):
             rows.append({"date": a.get("date"), "vehicle_id": a["vehicle_id"], "category": "Accident",
-                         "amount": a.get("repair_cost") or 0, "description": a.get("location") or "Accident repair"})
+                         "amount": a.get("repair_cost") or 0, "description": a.get("location") or "Accident repair",
+                         "source": "accidents", "source_id": a.get("id")})
     for ft in await db.fastag_transactions.find(q(extra={"txn_type": "toll"}), {"_id": 0}).to_list(5000):
         rows.append({"date": ft.get("date"), "vehicle_id": ft["vehicle_id"], "category": "Fastag",
-                     "amount": ft.get("amount") or 0, "description": ft.get("toll_plaza") or "Toll"})
+                     "amount": ft.get("amount") or 0, "description": ft.get("toll_plaza") or "Toll",
+                     "source": "fastag", "source_id": ft.get("id")})
     for tr in await db.trips.find(q(), {"_id": 0}).to_list(5000):
         amt = (tr.get("toll_expense") or 0) + (tr.get("parking_expense") or 0) + (tr.get("misc_expense") or 0)
         if amt:
             rows.append({"date": tr.get("date"), "vehicle_id": tr["vehicle_id"], "category": "Trip",
-                         "amount": amt, "description": f"{tr.get('origin', '')} → {tr.get('destination', '')}"})
+                         "amount": amt, "description": f"{tr.get('origin', '')} → {tr.get('destination', '')}",
+                         "source": "trips", "source_id": tr.get("id")})
     for ex in await db.expenses.find(q(), {"_id": 0}).to_list(5000):
         rows.append({"date": ex.get("date"), "vehicle_id": ex["vehicle_id"], "category": ex.get("category", "Miscellaneous"),
-                     "amount": ex.get("amount") or 0, "description": ex.get("description") or ""})
+                     "amount": ex.get("amount") or 0, "description": ex.get("description") or "",
+                     "source": "expenses", "source_id": ex.get("id")})
     rows.sort(key=lambda r: r.get("date") or "", reverse=True)
     return rows

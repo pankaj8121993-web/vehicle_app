@@ -4,6 +4,7 @@ import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
 import { Loader2, Truck, Route, Hammer, PauseCircle, ShieldAlert, Fuel, Wrench, IndianRupee, AlertTriangle, TrendingUp } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
 import { DrillDownDialog } from "@/components/DrillDownDialog";
+import { SetupChecklistBanner } from "@/components/SetupChecklistBanner";
 
 const fmtMonth = (m) => {
   const [y, mo] = m.split("-");
@@ -95,6 +96,8 @@ export default function Dashboard() {
         <h1 className="font-heading text-3xl font-black tracking-tighter text-slate-900 md:text-4xl">Fleet Dashboard</h1>
         <p className="mt-1 text-sm text-slate-500">Live operational, compliance and financial overview · <span className="text-slate-700">click any card to drill down</span></p>
       </div>
+
+      <SetupChecklistBanner />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Metric label="Total Vehicles" value={compliance.total_vehicles} icon={Truck} testId="metric-total-vehicles" />

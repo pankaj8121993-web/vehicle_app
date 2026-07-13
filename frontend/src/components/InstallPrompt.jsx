@@ -41,7 +41,7 @@ export const InstallPrompt = () => {
     <div className="fixed bottom-4 right-4 z-50 w-72 border border-slate-200 bg-white p-3 shadow-lg sm:hidden" data-testid="pwa-install-prompt">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1">
-          <p className="font-heading text-sm font-bold text-slate-900">Install Rajguru Fleet</p>
+          <p className="font-heading text-sm font-bold text-slate-900">Install FleetFlow</p>
           <p className="mt-1 text-xs text-slate-500">Add to home screen for quick access.</p>
         </div>
         <button onClick={dismiss} className="p-1 text-slate-400 hover:text-slate-700" data-testid="pwa-install-dismiss">

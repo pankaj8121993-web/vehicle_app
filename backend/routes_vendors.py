@@ -37,8 +37,8 @@ async def list_vendors(request: Request, user=Depends(require_user)):
 
 @router.post("/vendors")
 async def create_vendor(payload: VendorCreate, user=Depends(require_user)):
-    if user.get("role") == "driver":
-        raise HTTPException(status_code=403, detail="Drivers cannot manage vendors")
+    if user.get("role") in ("driver", "viewer"):
+        raise HTTPException(status_code=403, detail="You do not have permission to manage vendors")
     if payload.vendor_type not in VENDOR_TYPES:
         raise HTTPException(status_code=400, detail="Invalid vendor type")
     doc = payload.model_dump()

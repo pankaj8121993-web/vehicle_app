@@ -1,0 +1,49 @@
+{
+  "summary": "FleetFlow multi-tenant SaaS conversion validated end-to-end. Backend: 21/21 focused pytest cases pass (auth+org context, onboarding wizard incl. validation & duplicate rejection, demo entry for 8 roles, demo isolation (org_admin cannot POST /api/users, cannot PUT /api/org, viewer cannot POST /api/trips), multi-tenant vehicle isolation (Rajguru↔Acme), expense overview/insights, budgets CRUD + duplicate rejection + status endpoint, org profile & branches CRUD). Frontend: Landing page (/) fully rebranded FleetFlow, hero tagline exact, all key testids present, no Rajguru branding on public surfaces. Demo flow /demo → 8 role cards → Enter Demo auto-authenticates to demo dashboard with yellow banner, sidebar shows 'FleetFlow Demo Logistics', seeded MH12/MH14 vehicles, alerts panel populated. Exit Demo logs out and redirects to /login (spec says landing — minor deviation). Login page FleetFlow branded, show/hide password toggle works, wrong-password shows clean error, no test creds displayed. Onboarding wizard /get-started renders 6-step progress bar with all 11 org type cards; step 1→2 advances after selecting a type. Expense Intelligence page has all 5 tabs (Overview/Full Ledger/Manual/Budgets/Insights), budget-add-btn present, insights render. Trips has 3 tabs (all/ongoing/completed); Repairs has 8 ticket status tabs; Drivers has 5 status tabs. /settings/organisation shows profile form with save button, branches panel with Add Branch, setup checklist header with 6/8 progress bar. Rajguru admin dashboard shows only its own vehicle (1) confirming tenant isolation on the UI. Frontend responds correctly to auth and paginated responses (vehicles endpoint returns {items,total,page}).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Layout / Exit Demo", "issue": "Clicking 'Exit Demo' logs out and redirects to /login instead of the public landing page (/) as stated in the spec. Session is cleared correctly; only the post-logout destination differs.", "selector": "[data-testid=\"exit-demo-btn\"]", "priority": "LOW"},
+      {"component": "Onboarding Step 1", "issue": "The Next button on Step 1 (Account Type) is NOT disabled when no org type card is selected. The user can click Next; whether client validation then blocks progression could not be confirmed because a click always advanced after a card was chosen — however 'disabled' attribute returned False in both states. This is a UX polish issue only (backend rejects invalid org_type with 400 as verified by tests).", "selector": "[data-testid=\"onb-next-btn\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Expenses → Budget vs Actual", "issues": ["Month selector uses the browser-native <input type=\"month\"> picker rather than a shadcn Calendar/Select — inconsistent with other pickers in the app."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fleetflow.py",
+    "/app/test_reports/pytest/fleetflow_results.xml"
+  ],
+  "action_items": [
+    "(LOW) Redirect to '/' (landing) after Exit Demo instead of '/login' to match spec.",
+    "(LOW) Disable the 'Next' button on onboarding Step 1 until an org type is selected (backend validates but UX would be clearer).",
+    "(NICE-TO-HAVE) Replace native month <input> on Budget vs Actual with a shadcn month picker for visual consistency."
+  ],
+  "critical_code_review_comments": [
+    "Backend expense/budget/org routes are cleanly scoped by the TenantDB context (verified via cross-tenant test: Acme vehicles never appear for Rajguru admin and vice versa).",
+    "POST /api/onboarding/register enforces global uniqueness on legal_name_lc, username and email (returns 400 for duplicates) and creates org + org_admin + default 'Head Office' branch atomically. Response returns a fresh session token so the UI can drop the new user straight into /dashboard.",
+    "Demo isolation is enforced server-side: is_demo flag on the user document blocks PUT /api/org and user creation for demo org_admins (403 with clear detail). Viewers get 403 'Viewers have read-only access' on any POST to CRUD routes.",
+    "routes_expenses.py POST /api/budgets rejects duplicate (category+month) combos with a proper 400 message — the UI must surface this as a toast (verified endpoint but did not exercise the toast in-browser during this run).",
+    "helpers.gather_expenses respects the tenant context automatically because it queries via the tenant-scoped `db` proxy; include_test flag is gated to role=='test'.",
+    "Landing page and Login page contain no seeded credentials — good hardening from the previous single-tenant version.",
+    "Vehicles list endpoint returns a paginated envelope {items,total,page,page_size} — any test/UI consumer that assumed a bare array will break; new test_fleetflow.py already normalises via _vehicles() helper.",
+    "Setup checklist banner reads gstin/pan/phone/logo/vehicles/drivers/vendors/docs/users/trips counts — items list matches spec (8 total)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fleetflow.py (new file — 21 test cases covering FleetFlow-specific backend surface)"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 focused fleetflow tests; prior 94-test suite intentionally NOT re-run per instructions)",
+    "frontend": "~97% (all critical flows validated; 2 low-priority UX nits and 1 minor design nit)"
+  },
+  "test_credentials": "Used seeded defaults exactly as listed in /app/memory/test_credentials.md — admin/rajguru@2026, raviacme/acme@12345. Demo entered via POST /api/demo/enter and via /demo UI. Passwords were NOT rotated during this run (conftest teardown untouched).",
+  "seed_data_creation": "Backend tests created a small number of TEST_ prefixed rows that were cleaned up in-line: TEST_Org_<ts> Pvt Ltd + admin (kept — cannot be removed via public API), Fuel budget in 2029-06 (created→duplicate→updated→deleted), TEST_Branch_<ts> (created→updated→deleted). One vehicle 'KA01AA<n>' was created inside Acme for the cross-tenant test and NOT deleted (matches the instructions: 'Vehicles created during your isolation tests can remain'). Demo data was not modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Focused fleetflow backend tests live at /app/backend/tests/test_fleetflow.py (21 cases, ~7s). They intentionally do NOT rotate passwords or call the legacy conftest teardown from the 94-test suite. Reuse /vehicles response unwrapping helper _vehicles() — the endpoint returns {items,total,page,page_size}. Onboarding tests use timestamp-suffixed org/username/email so they are re-runnable. Acme org (raviacme/acme@12345) already contains 1+ residual test vehicle from prior isolation runs — the test asserts disjoint IDs with Rajguru rather than 'zero vehicles' to remain green. Frontend: /demo → 8 role cards, Exit Demo currently goes to /login (spec wants /). All Expense tabs, Trip status tabs (3), Ticket status tabs (8), Driver status tabs (5), Org settings + branches all render with the documented data-testids.",
+  "rca_of_the_issue": "N/A — no functional bugs found. Minor deviations noted are cosmetic/UX (Exit Demo destination, Step-1 Next disabled state, native month picker)."
+}

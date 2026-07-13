@@ -57,9 +57,28 @@ export const STATUS_STYLES = {
 };
 
 export const ROLE_LABELS = {
+  org_admin: "Organisation Super Admin",
+  owner: "Owner / Management",
+  fleet_manager: "Fleet Manager",
+  operations: "Operations User",
+  maintenance: "Maintenance Manager",
+  accounts: "Accounts User",
+  viewer: "Auditor / Viewer",
   driver: "Driver",
   data_entry: "Data Entry Operator",
   management: "Management",
   admin: "Admin",
   test: "Test User",
 };
+
+// Effective permission tier for UI decisions (mirrors backend ROLE_EQUIV)
+export const ROLE_TIER = {
+  org_admin: "admin",
+  owner: "management",
+  fleet_manager: "management",
+  operations: "data_entry",
+  maintenance: "data_entry",
+  accounts: "data_entry",
+  viewer: "viewer",
+};
+export const roleTier = (role) => ROLE_TIER[role] || role;

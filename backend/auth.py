@@ -7,13 +7,35 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Header
 from passlib.hash import bcrypt
-from database import db
+from database import db, raw_db, current_org_id
 from models import UserCreate, UserUpdate, PasswordChange, LoginRequest
 
 router = APIRouter(tags=["auth"])
 
-ROLES = ["driver", "data_entry", "management", "admin", "test"]
+ROLES = [
+    "org_admin", "owner", "fleet_manager", "operations", "maintenance",
+    "accounts", "driver", "viewer",
+    # Legacy roles (still supported)
+    "data_entry", "management", "admin", "test",
+]
+# Maps every role onto one of the enforcement tiers: admin / management / data_entry / driver / viewer / test
+ROLE_EQUIV = {
+    "org_admin": "admin",
+    "owner": "management",
+    "fleet_manager": "management",
+    "operations": "data_entry",
+    "maintenance": "data_entry",
+    "accounts": "data_entry",
+    "viewer": "viewer",
+}
 ROLE_LABELS = {
+    "org_admin": "Organisation Super Admin",
+    "owner": "Owner / Management",
+    "fleet_manager": "Fleet Manager",
+    "operations": "Operations User",
+    "maintenance": "Maintenance Manager",
+    "accounts": "Accounts User",
+    "viewer": "Auditor / Viewer",
     "driver": "Driver",
     "data_entry": "Data Entry Operator",
     "management": "Management",
@@ -83,9 +105,13 @@ async def require_user(authorization: str = Header(None)):
     user = await _resolve_session(token)
     if not user:
         raise HTTPException(status_code=401, detail="Session expired or invalid")
-    # Standardize internal fields used across routes
+    # Standardize internal fields + apply effective role tier & org context
+    user = dict(user)
     user.setdefault("user_id", user["id"])
     user.setdefault("name", user.get("full_name") or user.get("username"))
+    user["actual_role"] = user.get("role")
+    user["role"] = ROLE_EQUIV.get(user.get("role"), user.get("role"))
+    current_org_id.set(user.get("org_id"))
     if user.get("must_change_password"):
         return {**user, "_must_change_pw": True}
     return user
@@ -103,23 +129,35 @@ def require_role(*roles):
 
 # ---------- Auth endpoints ----------
 
-@router.post("/auth/login")
-async def login(payload: LoginRequest):
-    username = payload.username.lower().strip()
-    user = await db.users.find_one({"username": username, "is_active": True})
-    if not user or not bcrypt.verify(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+async def create_session(user_id: str) -> str:
     token = _gen_token()
     expires = (_now() + timedelta(days=SESSION_TTL_DAYS)).isoformat()
     await db.user_sessions.insert_one({
         "id": str(uuid.uuid4()),
-        "user_id": user["id"],
+        "user_id": user_id,
         "token": token,
         "created_at": _now().isoformat(),
         "last_used_at": _now().isoformat(),
         "expires_at": expires,
         "revoked": False,
     })
+    return token
+
+
+async def _org_name(org_id):
+    if not org_id:
+        return None
+    org = await raw_db.organizations.find_one({"id": org_id}, {"_id": 0, "trade_name": 1, "legal_name": 1})
+    return (org.get("trade_name") or org.get("legal_name")) if org else None
+
+
+@router.post("/auth/login")
+async def login(payload: LoginRequest):
+    username = payload.username.lower().strip()
+    user = await raw_db.users.find_one({"username": username, "is_active": True})
+    if not user or not bcrypt.verify(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = await create_session(user["id"])
     return {
         "token": token,
         "user": {
@@ -128,6 +166,9 @@ async def login(payload: LoginRequest):
             "full_name": user["full_name"],
             "role": user["role"],
             "must_change_password": user.get("must_change_password", False),
+            "org_id": user.get("org_id"),
+            "org_name": await _org_name(user.get("org_id")),
+            "is_demo": bool(user.get("is_demo")),
         },
     }
 
@@ -156,6 +197,9 @@ async def me(authorization: str = Header(None)):
         "full_name": user["full_name"],
         "role": user["role"],
         "must_change_password": user.get("must_change_password", False),
+        "org_id": user.get("org_id"),
+        "org_name": await _org_name(user.get("org_id")),
+        "is_demo": bool(user.get("is_demo")),
     }
 
 
@@ -191,6 +235,8 @@ async def list_users(user=Depends(require_role("admin"))):
 
 @router.post("/users")
 async def create_user(payload: UserCreate, user=Depends(require_role("admin"))):
+    if user.get("is_demo"):
+        raise HTTPException(status_code=403, detail="Demo users cannot manage users")
     if payload.role not in ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
     if len(payload.password) < 6:
@@ -198,7 +244,7 @@ async def create_user(payload: UserCreate, user=Depends(require_role("admin"))):
     username = payload.username.lower().strip()
     if not username:
         raise HTTPException(status_code=400, detail="Username is required")
-    existing = await db.users.find_one({"username": username})
+    existing = await raw_db.users.find_one({"username": username})
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
     doc = {
@@ -219,6 +265,8 @@ async def create_user(payload: UserCreate, user=Depends(require_role("admin"))):
 
 @router.put("/users/{uid}")
 async def update_user(uid: str, payload: UserUpdate, user=Depends(require_role("admin"))):
+    if user.get("is_demo"):
+        raise HTTPException(status_code=403, detail="Demo users cannot manage users")
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if updates.get("role") and updates["role"] not in ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
@@ -236,6 +284,8 @@ async def update_user(uid: str, payload: UserUpdate, user=Depends(require_role("
 
 @router.post("/users/{uid}/reset-password")
 async def reset_password(uid: str, user=Depends(require_role("admin"))):
+    if user.get("is_demo"):
+        raise HTTPException(status_code=403, detail="Demo users cannot manage users")
     target = await db.users.find_one({"id": uid})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
@@ -252,6 +302,8 @@ async def reset_password(uid: str, user=Depends(require_role("admin"))):
 
 @router.delete("/users/{uid}")
 async def delete_user(uid: str, user=Depends(require_role("admin"))):
+    if user.get("is_demo"):
+        raise HTTPException(status_code=403, detail="Demo users cannot manage users")
     if uid == user["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
     target = await db.users.find_one({"id": uid})
@@ -266,18 +318,21 @@ async def delete_user(uid: str, user=Depends(require_role("admin"))):
 
 @router.get("/roles")
 async def list_roles():
-    return [
-        {"role": "driver", "label": "Driver",
-         "rights": "Add trips, fuel entries, breakdown reports. View only elsewhere."},
-        {"role": "data_entry", "label": "Data Entry Operator",
-         "rights": "Add & edit all records, upload documents. Cannot delete."},
-        {"role": "management", "label": "Management",
-         "rights": "Dashboards, reports, approve repairs, mark vehicles disposed / drivers exited."},
-        {"role": "admin", "label": "Admin",
-         "rights": "Full control including delete, user management and data cleanup."},
-        {"role": "test", "label": "Test User",
-         "rights": "Sandbox — creates are tagged as test data, cannot modify real records."},
-    ]
+    rights = {
+        "org_admin": "Full control of this organisation — users, settings, data cleanup and deletes.",
+        "owner": "Dashboards, reports, approvals, disposals and organisation settings.",
+        "fleet_manager": "Dashboards, reports, ticket approvals, vehicle & driver lifecycle.",
+        "operations": "Add & edit trips, fuel, maintenance and operational records.",
+        "maintenance": "Add & edit services, greasing, repairs, tyres and vendor jobs.",
+        "accounts": "Add & edit expenses, budgets, FASTag and payment records.",
+        "driver": "Add trips, fuel entries and breakdown reports. View only elsewhere.",
+        "viewer": "Read-only access to every module — ideal for auditors.",
+        "data_entry": "Add & edit all records, upload documents. Cannot delete.",
+        "management": "Dashboards, reports, approve repairs, disposals and driver exits.",
+        "admin": "Full control including delete, user management and data cleanup.",
+        "test": "Sandbox — creates are tagged as test data, cannot modify real records.",
+    }
+    return [{"role": r, "label": ROLE_LABELS[r], "rights": rights[r]} for r in ROLES]
 
 
 # ---------- Admin: purge test data ----------

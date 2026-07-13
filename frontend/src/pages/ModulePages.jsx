@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StatusTabs } from "@/components/StatusTabs";
 import { toast } from "sonner";
 import { Flag, RefreshCw, Loader2 } from "lucide-react";
 
@@ -76,9 +77,13 @@ const useDateRange = () => {
 
 export const TripsPage = () => {
   const { filters, setRange } = useDateRange();
+  const [status, setStatus] = useState("");
+  if (status) filters.status = status;
   return (
     <div><PageHeader title="Trip Management" subtitle="Record and monitor every vehicle movement" />
       <PeriodFilter testIdPrefix="trips-period" onChange={setRange} />
+      <StatusTabs testIdPrefix="trips" value={status} onChange={setStatus}
+        tabs={[{ value: "", label: "All" }, { value: "ongoing", label: "Ongoing" }, { value: "completed", label: "Completed" }]} />
       <CrudModule {...tripConfig} fixedFilters={filters} rowActions={CloseTripAction} /></div>
   );
 };
@@ -111,8 +116,10 @@ export const MaintenancePage = () => {
 
 export const RepairsPage = () => {
   const { filters, setRange } = useDateRange();
+  const [status, setStatus] = useState("");
   const [activeTicket, setActiveTicket] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  if (status) filters.status = status;
   const handleUpdated = (updated) => {
     // Preserve enriched fields (vehicle_number, driver_name, etc.) that
     // list GET populates but PATCH responses may omit.
@@ -123,6 +130,13 @@ export const RepairsPage = () => {
     <div data-testid="tickets-page">
       <PageHeader title="Service Tickets" subtitle="7-stage workflow: Open → Under Review → Approved → Sent for Repair → In Repair → Repaired → Closed" />
       <PeriodFilter testIdPrefix="repairs-period" onChange={setRange} />
+      <StatusTabs testIdPrefix="tickets" value={status} onChange={setStatus}
+        tabs={[
+          { value: "", label: "All" }, { value: "open", label: "Open" },
+          { value: "under_review", label: "Under Review" }, { value: "approved", label: "Approved" },
+          { value: "sent_for_repair", label: "Sent for Repair" }, { value: "in_repair", label: "In Repair" },
+          { value: "repaired", label: "Repaired" }, { value: "closed", label: "Closed" },
+        ]} />
       <CrudModule
         {...repairConfig}
         fixedFilters={filters}
@@ -231,8 +245,16 @@ export const DocumentsPage = () => (
 
 export const DriversPage = () => {
   const navigate = useNavigate();
+  const [status, setStatus] = useState("");
+  const filters = status ? { status } : {};
   return (
     <div><PageHeader title="Driver Management" subtitle="Click a driver to open their performance profile" />
-      <CrudModule {...driverConfig} onRowClick={(row) => navigate(`/drivers/${row.id}`)} /></div>
+      <StatusTabs testIdPrefix="drivers" value={status} onChange={setStatus}
+        tabs={[
+          { value: "", label: "All" }, { value: "active", label: "Active" },
+          { value: "on_leave", label: "On Leave" }, { value: "resigned", label: "Resigned" },
+          { value: "terminated", label: "Terminated" },
+        ]} />
+      <CrudModule {...driverConfig} fixedFilters={filters} onRowClick={(row) => navigate(`/drivers/${row.id}`)} /></div>
   );
 };

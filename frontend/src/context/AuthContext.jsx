@@ -43,6 +43,20 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   }, []);
 
+  const setSession = useCallback((token, u) => {
+    localStorage.setItem("fleet_token", token);
+    localStorage.setItem("fleet_user", JSON.stringify(u));
+    setUser(u);
+  }, []);
+
+  const enterDemo = useCallback(async (role) => {
+    const r = await api.post("/demo/enter", { role });
+    localStorage.setItem("fleet_token", r.data.token);
+    localStorage.setItem("fleet_user", JSON.stringify(r.data.user));
+    setUser(r.data.user);
+    return r.data.user;
+  }, []);
+
   const refresh = useCallback(async () => {
     const r = await api.get("/auth/me");
     setUser(r.data);
@@ -51,7 +65,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refresh, setSession, enterDemo }}>
       {children}
     </AuthContext.Provider>
   );

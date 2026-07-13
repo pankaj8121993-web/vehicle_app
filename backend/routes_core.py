@@ -34,6 +34,8 @@ async def list_vehicles(request: Request, user=Depends(require_user)):
     include_disposed = (p.get("include_disposed") or "").lower() == "true"
     include_test = (p.get("include_test") or "").lower() == "true" and user.get("role") == "admin"
     q = {} if include_disposed else {"status": {"$nin": DISPOSED_STATUSES}}
+    if p.get("status"):
+        q = {"status": p["status"]}
     if not include_test:
         q["is_test_data"] = {"$ne": True}
     # In test mode, ONLY show test vehicles
@@ -51,8 +53,8 @@ async def list_vehicles(request: Request, user=Depends(require_user)):
 
 @router.post("/vehicles")
 async def create_vehicle(payload: VehicleCreate, user=Depends(require_user)):
-    if user["role"] == "driver":
-        raise HTTPException(status_code=403, detail="Drivers cannot create vehicles")
+    if user["role"] in ("driver", "viewer"):
+        raise HTTPException(status_code=403, detail="You do not have permission to create vehicles")
     doc = payload.model_dump()
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -319,6 +321,8 @@ async def list_drivers(request: Request, user=Depends(require_user)):
     p = dict(request.query_params)
     include_test = (p.get("include_test") or "").lower() == "true" and user.get("role") == "admin"
     q = {}
+    if p.get("status"):
+        q["status"] = p["status"]
     if user.get("role") == "test":
         q["is_test_data"] = True
     elif not include_test:
@@ -337,8 +341,8 @@ async def list_drivers(request: Request, user=Depends(require_user)):
 
 @router.post("/drivers")
 async def create_driver(payload: DriverCreate, user=Depends(require_user)):
-    if user["role"] == "driver":
-        raise HTTPException(status_code=403, detail="Drivers cannot create driver records")
+    if user["role"] in ("driver", "viewer"):
+        raise HTTPException(status_code=403, detail="You do not have permission to create driver records")
     doc = payload.model_dump()
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()

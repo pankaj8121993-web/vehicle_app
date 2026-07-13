@@ -2,6 +2,15 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 
+class OrgRegister(BaseModel):
+    org: dict
+    admin: dict
+    branch: Optional[dict] = None
+    preferences: Optional[dict] = None
+    compliance_docs: Optional[List[str]] = None
+    fleet_profile: Optional[dict] = None
+
+
 class UserCreate(BaseModel):
     username: str
     password: str

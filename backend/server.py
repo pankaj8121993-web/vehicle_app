@@ -6,7 +6,7 @@ from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 from passlib.hash import bcrypt
 
-from database import client, db
+from database import client, db, raw_db, TENANT_COLLECTIONS
 import auth
 import routes_core
 import routes_ops
@@ -18,22 +18,25 @@ import routes_calendar
 import routes_fleet_status
 import routes_vendors
 import routes_search
+import routes_orgs
+import routes_expenses
 from storage import init_storage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Rajguru Foods Fleet Management")
+app = FastAPI(title="FleetFlow — Complete Fleet Operations Management")
 
 api_router = APIRouter(prefix="/api")
 
 
 @api_router.get("/")
 async def root():
-    return {"message": "Rajguru Foods Fleet Management API"}
+    return {"message": "FleetFlow API", "tagline": "Complete Fleet Operations Management"}
 
 
 api_router.include_router(auth.router)
+api_router.include_router(routes_orgs.router)
 api_router.include_router(routes_core.router)
 api_router.include_router(routes_ops.router)
 api_router.include_router(routes_assets.router)
@@ -44,6 +47,7 @@ api_router.include_router(routes_calendar.router)
 api_router.include_router(routes_fleet_status.router)
 api_router.include_router(routes_vendors.router)
 api_router.include_router(routes_search.router)
+api_router.include_router(routes_expenses.router)
 
 app.include_router(api_router)
 
@@ -55,6 +59,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+DEFAULT_ORG_ID = "org-rajguru-foods"
 
 DEFAULT_USERS = [
     {"username": "admin", "password": "rajguru@2026", "role": "admin", "full_name": "Pankaj (Admin)"},
@@ -72,43 +78,92 @@ async def startup():
         logger.info("Object storage initialized")
     except Exception as e:
         logger.error(f"Storage init failed (uploads will retry lazily): {e}")
+
+    await _ensure_default_org()
+
     # Seed default users on first boot
-    existing = await db.users.count_documents({})
+    existing = await raw_db.users.count_documents({})
     if existing == 0:
         for u in DEFAULT_USERS:
-            await db.users.insert_one({
+            await raw_db.users.insert_one({
                 "id": str(_uuid.uuid4()),
+                "org_id": DEFAULT_ORG_ID,
                 "username": u["username"],
                 "password_hash": bcrypt.hash(u["password"]),
                 "role": u["role"],
                 "full_name": u["full_name"],
                 "is_active": True,
+                "is_demo": False,
                 "must_change_password": True,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "created_by": "system",
             })
         logger.info(f"Seeded {len(DEFAULT_USERS)} default users")
+
+    await _migrate_org_ids()
+    await _ensure_indexes()
     # Ticket system migrations (Checkpoint 4) — idempotent
     await _migrate_repair_statuses()
     await _backfill_ticket_numbers()
+
+
+async def _ensure_default_org():
+    org = await raw_db.organizations.find_one({"id": DEFAULT_ORG_ID})
+    if not org:
+        await raw_db.organizations.insert_one({
+            "id": DEFAULT_ORG_ID,
+            "legal_name": "Rajguru Foods",
+            "legal_name_lc": "rajguru foods",
+            "trade_name": "Rajguru Foods",
+            "org_type": "Company",
+            "fleet_ownership": "Owned",
+            "city": "Pune", "state": "Maharashtra", "country": "India",
+            "currency": "INR", "timezone": "Asia/Kolkata", "fy_start_month": 4,
+            "compliance_docs": ["RC", "Insurance", "Fitness", "Permit", "PUC", "Road Tax"],
+            "is_demo": False, "is_default": True, "onboarding_completed": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info("Created default organisation (Rajguru Foods)")
+
+
+async def _migrate_org_ids():
+    """Assign every legacy record (pre multi-tenancy) to the default organisation."""
+    total = 0
+    for coll in TENANT_COLLECTIONS:
+        res = await raw_db[coll].update_many(
+            {"org_id": {"$exists": False}}, {"$set": {"org_id": DEFAULT_ORG_ID}}
+        )
+        total += res.modified_count
+    if total:
+        logger.info(f"Multi-tenancy migration: tagged {total} legacy records with default org_id")
+
+
+async def _ensure_indexes():
+    try:
+        for coll in TENANT_COLLECTIONS:
+            await raw_db[coll].create_index("org_id")
+        await raw_db.users.create_index("username", unique=True)
+        await raw_db.user_sessions.create_index("token")
+        await raw_db.organizations.create_index("id", unique=True)
+    except Exception as e:
+        logger.warning(f"Index creation issue: {e}")
 
 
 async def _migrate_repair_statuses():
     """Map legacy 4-state repair flow to new 7-state ticket flow."""
     mapping = {"reported": "open", "completed": "closed"}
     for old, new in mapping.items():
-        res = await db.repairs.update_many({"status": old}, {"$set": {"status": new}})
+        res = await raw_db.repairs.update_many({"status": old}, {"$set": {"status": new}})
         if res.modified_count:
             logger.info(f"Migrated {res.modified_count} repairs: {old} → {new}")
 
 
 async def _backfill_ticket_numbers():
     """Assign TKT-YYYY-NNNN to any repair record missing ticket_number."""
-    repairs = await db.repairs.find(
+    repairs = await raw_db.repairs.find(
         {"ticket_number": {"$in": [None, ""]}}, {"_id": 0, "id": 1, "date": 1}
     ).sort("date", 1).to_list(20000)
-    # Also pick up docs missing the field entirely
-    missing = await db.repairs.find(
+    missing = await raw_db.repairs.find(
         {"ticket_number": {"$exists": False}}, {"_id": 0, "id": 1, "date": 1}
     ).sort("date", 1).to_list(20000)
     seen = {r["id"] for r in repairs}
@@ -117,9 +172,8 @@ async def _backfill_ticket_numbers():
             repairs.append(m)
     if not repairs:
         return
-    # Find the highest existing ticket number per year so we don't collide
     existing_by_year = {}
-    async for r in db.repairs.find(
+    async for r in raw_db.repairs.find(
         {"ticket_number": {"$regex": "^TKT-"}},
         {"_id": 0, "ticket_number": 1},
     ):
@@ -137,7 +191,7 @@ async def _backfill_ticket_numbers():
         year = (r.get("date") or "1970-01-01")[:4]
         existing_by_year[year] = existing_by_year.get(year, 0) + 1
         ticket_num = f"TKT-{year}-{existing_by_year[year]:04d}"
-        await db.repairs.update_one({"id": r["id"]}, {"$set": {"ticket_number": ticket_num}})
+        await raw_db.repairs.update_one({"id": r["id"]}, {"$set": {"ticket_number": ticket_num}})
     logger.info(f"Backfilled ticket numbers for {len(repairs)} repair records")
 
 

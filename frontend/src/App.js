@@ -4,7 +4,11 @@ import { Toaster } from "sonner";
 import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { Layout } from "@/components/Layout";
+import { roleTier } from "@/lib/format";
 
+import Landing from "@/pages/Landing";
+import Onboarding from "@/pages/Onboarding";
+import DemoEntry from "@/pages/DemoEntry";
 import Login from "@/pages/Login";
 import ChangePassword from "@/pages/ChangePassword";
 import Dashboard from "@/pages/Dashboard";
@@ -21,6 +25,7 @@ import UserManagement from "@/pages/UserManagement";
 import TestDataAdmin from "@/pages/TestDataAdmin";
 import Vendors from "@/pages/Vendors";
 import DriverHome from "@/pages/DriverHome";
+import OrgSettings from "@/pages/OrgSettings";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import {
   TripsPage, FuelPage, MaintenancePage, RepairsPage, TyresPage,
@@ -41,21 +46,24 @@ const ProtectedRoute = ({ children, roles }) => {
   if (user.must_change_password && location.pathname !== "/change-password") {
     return <Navigate to="/change-password" replace />;
   }
-  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
+  if (roles && !roles.includes(roleTier(user.role))) return <Navigate to="/dashboard" replace />;
   return <Layout>{children}</Layout>;
 };
 
 const HomeRoute = () => {
   const { user } = useAuth();
-  return user?.role === "driver" ? <DriverHome /> : <Dashboard />;
+  return roleTier(user?.role) === "driver" ? <DriverHome /> : <Dashboard />;
 };
 
 function AppRouter() {
   return (
     <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/get-started" element={<Onboarding />} />
+      <Route path="/demo" element={<DemoEntry />} />
       <Route path="/login" element={<Login />} />
       <Route path="/change-password" element={<ProtectedRoute><ChangePassword forced /></ProtectedRoute>} />
-      <Route path="/" element={<ProtectedRoute><HomeRoute /></ProtectedRoute>} />
+      <Route path="/dashboard" element={<ProtectedRoute><HomeRoute /></ProtectedRoute>} />
       <Route path="/vehicles" element={<ProtectedRoute><Vehicles /></ProtectedRoute>} />
       <Route path="/vehicles/:id" element={<ProtectedRoute><VehicleProfile /></ProtectedRoute>} />
       <Route path="/drivers" element={<ProtectedRoute><DriversPage /></ProtectedRoute>} />
@@ -76,6 +84,7 @@ function AppRouter() {
       <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
       <Route path="/fleet-status" element={<ProtectedRoute><FleetStatus /></ProtectedRoute>} />
       <Route path="/vendors" element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
+      <Route path="/settings/organisation" element={<ProtectedRoute roles={["management", "admin"]}><OrgSettings /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute roles={["admin"]}><UserManagement /></ProtectedRoute>} />
       <Route path="/admin/test-data" element={<ProtectedRoute roles={["admin"]}><TestDataAdmin /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />

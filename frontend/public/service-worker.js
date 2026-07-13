@@ -1,4 +1,4 @@
-/* Rajguru Fleet — App Shell service worker. Always-network for /api/. */
+/* FleetFlow — App Shell service worker. Always-network for /api/. */
 const CACHE = "rf-shell-v1";
 const SHELL = ["/", "/index.html"];
 
