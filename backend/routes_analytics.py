@@ -78,10 +78,20 @@ async def compute_alerts():
     # Service due / overdue based on latest service per vehicle (active vehicles only, excluding test)
     vehicles = await db.vehicles.find({"status": {"$nin": DISPOSED_STATUSES}, "is_test_data": {"$ne": True}}, {"_id": 0}).to_list(2000)
     in_15 = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")
+
+    # Batch-fetch latest service & greasing per vehicle (avoids N+1 queries)
+    vehicle_ids = [v["id"] for v in vehicles]
+    latest_pipeline = [
+        {"$match": {"vehicle_id": {"$in": vehicle_ids}}},
+        {"$sort": {"date": -1}},
+        {"$group": {"_id": "$vehicle_id", "latest": {"$first": "$$ROOT"}}},
+    ]
+    latest_svc_map = {d["_id"]: d["latest"] async for d in db.services.aggregate(latest_pipeline)}
+    latest_gr_map = {d["_id"]: d["latest"] async for d in db.greasings.aggregate(latest_pipeline)}
+
     for v in vehicles:
-        latest_svc = await db.services.find({"vehicle_id": v["id"]}, {"_id": 0}).sort("date", -1).to_list(1)
-        if latest_svc:
-            s = latest_svc[0]
+        s = latest_svc_map.get(v["id"])
+        if s:
             due_date = s.get("next_due_date")
             due_km = s.get("next_due_km")
             odo = v.get("current_odometer") or 0
@@ -95,9 +105,8 @@ async def compute_alerts():
                 alerts.append({"type": "service_overdue", "severity": "danger",
                                "message": f"Service OVERDUE (by KM) — {v['vehicle_number']}", "vehicle_number": v["vehicle_number"], "due_date": None})
         # Greasing alerts — same pattern as services
-        latest_gr = await db.greasings.find({"vehicle_id": v["id"]}, {"_id": 0}).sort("date", -1).to_list(1)
-        if latest_gr:
-            g = latest_gr[0]
+        g = latest_gr_map.get(v["id"])
+        if g:
             g_due_date = g.get("next_due_date")
             g_due_km = g.get("next_due_km")
             odo = v.get("current_odometer") or 0
