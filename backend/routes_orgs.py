@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException
 from passlib.hash import bcrypt
 from database import db, raw_db, current_org_id
-from auth import require_user, require_role, create_session, ROLES
+from auth import require_user, require_role, create_session, ROLES, allowed_modules
 from models import OrgRegister
 import demo_seed
 
@@ -133,6 +133,7 @@ async def register_org(payload: OrgRegister):
             "id": user_id, "username": username, "full_name": full_name,
             "role": "org_admin", "must_change_password": False,
             "org_id": org_id, "org_name": org_doc["trade_name"], "is_demo": False,
+            "modules": allowed_modules("org_admin"),
         },
     }
 
@@ -279,5 +280,6 @@ async def enter_demo(payload: dict = Body(...)):
             "id": duser["id"], "username": duser["username"], "full_name": duser["full_name"],
             "role": duser["role"], "must_change_password": False,
             "org_id": duser["org_id"], "org_name": "FleetFlow Demo Logistics", "is_demo": True,
+            "modules": allowed_modules(duser["role"]),
         },
     }

@@ -763,12 +763,10 @@ class TestAuth:
         assert r.status_code == 400
 
     def test_logout_revokes_session(self):
-        # Fresh login so we don't kill the cached test session
-        login = requests.post(f"{API}/auth/login",
-                              json={"username": CREDS["data_entry"][0],
-                                    "password": NEW_PASSWORDS["data_entry"]})
-        assert login.status_code == 200
-        token = login.json()["token"]
+        # Fresh login so we don't kill the cached test session.
+        # _ensure_password_changed performs a fresh login and returns a valid
+        # token regardless of whether the seeded password has been rotated yet.
+        token = _ensure_password_changed("data_entry")
         # Verify session works
         m1 = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert m1.status_code == 200
@@ -988,7 +986,10 @@ class TestComplianceContacts:
         assert r.status_code in (200, 201), r.text
         cid = r.json()["id"]
         try:
-            r2 = requests.get(f"{API}/compliance/contacts", headers=h("driver"))
+            # Drivers no longer have access to the compliance module (RBAC matrix)
+            r_drv = requests.get(f"{API}/compliance/contacts", headers=h("driver"))
+            assert r_drv.status_code == 403
+            r2 = requests.get(f"{API}/compliance/contacts", headers=h("data_entry"))
             assert r2.status_code == 200
             assert cid in [c["id"] for c in r2.json()]
             upd = requests.put(f"{API}/compliance/contacts/{cid}", headers=h("management"),

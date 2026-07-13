@@ -5,7 +5,7 @@ All endpoints exclude sold/scrapped vehicles.
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from database import db
-from auth import require_user
+from auth import require_user, require_module
 from helpers import gather_expenses, get_lookup_maps
 
 router = APIRouter(prefix="/drilldowns", tags=["drilldowns"])
@@ -26,7 +26,7 @@ async def _active_vehicle_map():
 
 
 @router.get("/docs_expiring")
-async def docs_expiring(days: int = 30, user=Depends(require_user)):
+async def docs_expiring(days: int = 30, user=Depends(require_module("analytics"))):
     """Documents expiring within N days (latest expiry per vehicle/doc_type)."""
     today = _today()
     target = (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
@@ -56,7 +56,7 @@ async def docs_expiring(days: int = 30, user=Depends(require_user)):
 
 
 @router.get("/docs_expired")
-async def docs_expired(user=Depends(require_user)):
+async def docs_expired(user=Depends(require_module("analytics"))):
     """Documents already expired (latest expiry per vehicle/doc_type)."""
     today = _today()
     vmap = await _active_vehicle_map()
@@ -84,7 +84,7 @@ async def docs_expired(user=Depends(require_user)):
 
 
 @router.get("/vehicles_under_repair")
-async def vehicles_under_repair(user=Depends(require_user)):
+async def vehicles_under_repair(user=Depends(require_module("analytics"))):
     """Vehicles with open repair tickets (reported/approved/in_repair) — active vehicles only."""
     vmap = await _active_vehicle_map()
     repairs = await db.repairs.find(
@@ -111,7 +111,7 @@ async def vehicles_under_repair(user=Depends(require_user)):
 
 
 @router.get("/service_due")
-async def service_due(window: str = "due_or_overdue", user=Depends(require_user)):
+async def service_due(window: str = "due_or_overdue", user=Depends(require_module("analytics"))):
     """Service due/overdue list. window: due_soon | overdue | due_or_overdue."""
     today = _today()
     in_15 = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")
@@ -150,7 +150,7 @@ async def service_due(window: str = "due_or_overdue", user=Depends(require_user)
 
 
 @router.get("/top_fuel_consumers")
-async def top_fuel_consumers(month: str = None, user=Depends(require_user)):
+async def top_fuel_consumers(month: str = None, user=Depends(require_module("analytics"))):
     """Top fuel consumers for given YYYY-MM (defaults to current month)."""
     if not month:
         month = datetime.now(timezone.utc).strftime("%Y-%m")
@@ -182,7 +182,7 @@ async def top_fuel_consumers(month: str = None, user=Depends(require_user)):
 
 
 @router.get("/top_cost_vehicles")
-async def top_cost_vehicles(month: str = None, user=Depends(require_user)):
+async def top_cost_vehicles(month: str = None, user=Depends(require_module("analytics"))):
     """Top operating cost vehicles for given YYYY-MM with category breakdown."""
     if not month:
         month = datetime.now(timezone.utc).strftime("%Y-%m")
@@ -212,7 +212,7 @@ async def top_cost_vehicles(month: str = None, user=Depends(require_user)):
 
 
 @router.get("/low_mileage_vehicles")
-async def low_mileage_vehicles(threshold: float = 5.0, user=Depends(require_user)):
+async def low_mileage_vehicles(threshold: float = 5.0, user=Depends(require_module("analytics"))):
     """Vehicles with average mileage below threshold (km/L). Active vehicles only."""
     vmap = await _active_vehicle_map()
     rows = []
@@ -235,7 +235,7 @@ async def low_mileage_vehicles(threshold: float = 5.0, user=Depends(require_user
 
 
 @router.get("/licenses_expiring")
-async def licenses_expiring(days: int = 30, user=Depends(require_user)):
+async def licenses_expiring(days: int = 30, user=Depends(require_module("analytics"))):
     """Driver licenses expiring within N days. Excludes resigned/terminated drivers."""
     today = _today()
     target = (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
@@ -255,7 +255,7 @@ async def licenses_expiring(days: int = 30, user=Depends(require_user)):
 
 
 @router.get("/active_trips")
-async def active_trips(user=Depends(require_user)):
+async def active_trips(user=Depends(require_module("analytics"))):
     """Currently ongoing trips (active vehicles only)."""
     vmap = await _active_vehicle_map()
     _, dmap = await get_lookup_maps()
@@ -280,7 +280,7 @@ async def active_trips(user=Depends(require_user)):
 
 
 @router.get("/greasing_due")
-async def greasing_due(window: str = "due_or_overdue", user=Depends(require_user)):
+async def greasing_due(window: str = "due_or_overdue", user=Depends(require_module("analytics"))):
     """Greasing due/overdue list — mirror of service_due, reads from `greasings` collection."""
     today = _today()
     in_15 = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")

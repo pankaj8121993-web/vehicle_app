@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File, Response
 from database import db
-from auth import require_user, require_role
+from auth import require_user, require_role, require_module
 from models import VehicleCreate, DriverCreate, DocumentCreate
 from helpers import make_crud, enrich, gather_expenses
 from storage import put_object, get_object, APP_NAME
@@ -317,7 +317,7 @@ async def list_active_drivers(user=Depends(require_user)):
 
 
 @router.get("/drivers")
-async def list_drivers(request: Request, user=Depends(require_user)):
+async def list_drivers(request: Request, user=Depends(require_module("drivers"))):
     p = dict(request.query_params)
     include_test = (p.get("include_test") or "").lower() == "true" and user.get("role") == "admin"
     q = {}

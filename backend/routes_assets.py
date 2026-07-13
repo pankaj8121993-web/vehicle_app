@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from database import db
-from auth import require_user
+from auth import require_user, require_module
 from models import TyreCreate, TyreEventCreate, AccidentCreate, FastagTxnCreate, DowntimeCreate, ExpenseCreate
 from helpers import make_crud, gather_expenses, enrich
 
@@ -11,7 +11,7 @@ router = APIRouter(tags=["assets"])
 
 
 # ---------- Tyres ----------
-make_crud(router, "tyres", "tyres", TyreCreate, date_field="installation_date")
+make_crud(router, "tyres", "tyres", TyreCreate, date_field="installation_date", module="tyres")
 
 
 async def on_tyre_event_create(doc):
@@ -23,7 +23,7 @@ async def on_tyre_event_create(doc):
         await db.tyres.update_one({"id": doc["tyre_id"]}, {"$set": {"status": "removed", "removal_km": doc.get("odometer")}})
     return doc
 
-make_crud(router, "tyre-events", "tyre_events", TyreEventCreate, on_create=on_tyre_event_create)
+make_crud(router, "tyre-events", "tyre_events", TyreEventCreate, on_create=on_tyre_event_create, module="tyres")
 
 
 # ---------- Accidents ----------
@@ -36,7 +36,7 @@ async def on_fastag_create(doc):
     await db.vehicles.update_one({"id": doc["vehicle_id"]}, {"$inc": {"fastag_balance": delta}})
     return doc
 
-make_crud(router, "fastag", "fastag_transactions", FastagTxnCreate, on_create=on_fastag_create)
+make_crud(router, "fastag", "fastag_transactions", FastagTxnCreate, on_create=on_fastag_create, module="fastag")
 
 
 # SIMULATED Fastag auto-sync (no public NPCI/bank Fastag API exists).
@@ -103,12 +103,12 @@ async def on_downtime_create(doc):
         doc["status"] = "open"
     return doc
 
-make_crud(router, "downtime", "downtimes", DowntimeCreate, date_field="start_date", on_create=on_downtime_create)
+make_crud(router, "downtime", "downtimes", DowntimeCreate, date_field="start_date", on_create=on_downtime_create, module="downtime")
 
 
 # ---------- Expenses ----------
 @router.get("/expenses/ledger")
-async def expense_ledger(vehicle_id: str = None, start_date: str = None, end_date: str = None, user=Depends(require_user)):
+async def expense_ledger(vehicle_id: str = None, start_date: str = None, end_date: str = None, user=Depends(require_module("expenses"))):
     include_test = user.get("role") == "test"
     rows = await gather_expenses(vehicle_id=vehicle_id, start_date=start_date, end_date=end_date, include_test=include_test)
     rows = await enrich(rows)
@@ -125,4 +125,4 @@ async def expense_ledger(vehicle_id: str = None, start_date: str = None, end_dat
         "by_vehicle": by_vehicle,
     }
 
-make_crud(router, "expenses", "expenses", ExpenseCreate)
+make_crud(router, "expenses", "expenses", ExpenseCreate, module="expenses")

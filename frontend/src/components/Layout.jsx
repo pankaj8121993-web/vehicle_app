@@ -51,7 +51,17 @@ const ADMIN_GROUP = {
   ],
 };
 
-const buildNav = (role) => {
+const NAV_MODULE = {
+  "/dashboard": "dashboard", "/fleet-status": "fleet-status", "/compliance": "compliance",
+  "/calendar": "calendar", "/reports": "reports", "/vehicles": "vehicles", "/drivers": "drivers",
+  "/documents": "documents", "/vendors": "vendors", "/trips": "trips", "/fuel": "fuel",
+  "/maintenance": "maintenance", "/repairs": "repairs", "/tyres": "tyres", "/accidents": "accidents",
+  "/fastag": "fastag", "/downtime": "downtime", "/expenses": "expenses",
+  "/settings/organisation": "org-settings", "/users": "users",
+  "/compliance/contacts": "compliance", "/admin/test-data": "test-data",
+};
+
+const buildNav = (role, modules) => {
   const tier = roleTier(role);
   const out = [...BASE_NAV];
   if (tier === "management") {
@@ -61,11 +71,14 @@ const buildNav = (role) => {
     ]});
   }
   if (tier === "admin") out.push(ADMIN_GROUP);
-  return out;
+  if (!modules) return out;
+  return out
+    .map((g) => ({ ...g, items: g.items.filter((i) => modules.includes(NAV_MODULE[i.to] || "dashboard")) }))
+    .filter((g) => g.items.length > 0);
 };
 
-const SidebarContent = ({ onNavigate, role, orgName }) => {
-  const nav = buildNav(role);
+const SidebarContent = ({ onNavigate, role, orgName, modules }) => {
+  const nav = buildNav(role, modules);
   return (
     <div className="flex h-full flex-col bg-slate-900 text-slate-300">
       <div className="border-b border-slate-800 px-5 py-5">
@@ -131,7 +144,7 @@ export const Layout = ({ children }) => {
   return (
     <div className="flex min-h-screen bg-slate-50">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 lg:block">
-        <SidebarContent role={role} orgName={user?.org_name} />
+        <SidebarContent role={role} orgName={user?.org_name} modules={user?.modules} />
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col lg:pl-56">
@@ -162,13 +175,13 @@ export const Layout = ({ children }) => {
               <SheetContent side="left" className="w-56 border-0 p-0">
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
                 <SheetDescription className="sr-only">Main navigation menu</SheetDescription>
-                <SidebarContent role={role} orgName={user?.org_name} onNavigate={() => setMobileOpen(false)} />
+                <SidebarContent role={role} orgName={user?.org_name} modules={user?.modules} onNavigate={() => setMobileOpen(false)} />
               </SheetContent>
             </Sheet>
             <p className="font-heading text-sm font-bold tracking-tight text-slate-900 lg:hidden">FleetFlow</p>
           </div>
           <div className="hidden flex-1 px-6 lg:block">
-            <GlobalSearch />
+            {(!user?.modules || user.modules.includes("search")) && <GlobalSearch />}
           </div>
           <div className="flex items-center gap-3">
             <DropdownMenu>

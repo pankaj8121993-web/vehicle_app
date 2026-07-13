@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
-from auth import require_user, require_role
+from auth import require_user, require_role, require_module
 from helpers import gather_expenses
 
 router = APIRouter(tags=["expenses"])
@@ -21,7 +21,7 @@ def _month(d):
 
 
 @router.get("/expenses/overview")
-async def expense_overview(start_date: str = None, end_date: str = None, user=Depends(require_user)):
+async def expense_overview(start_date: str = None, end_date: str = None, user=Depends(require_module("expenses"))):
     today = datetime.now(timezone.utc)
     cur_month = today.strftime("%Y-%m")
     prev_month = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
@@ -89,7 +89,7 @@ async def expense_overview(start_date: str = None, end_date: str = None, user=De
 
 
 @router.get("/expenses/insights")
-async def expense_insights(user=Depends(require_user)):
+async def expense_insights(user=Depends(require_module("expenses"))):
     today = datetime.now(timezone.utc)
     cur_month = today.strftime("%Y-%m")
     prev_month = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
@@ -191,7 +191,7 @@ async def expense_insights(user=Depends(require_user)):
 # ---------- Budgets ----------
 
 @router.get("/budgets")
-async def list_budgets(month: str = None, user=Depends(require_user)):
+async def list_budgets(month: str = None, user=Depends(require_module("expenses"))):
     q = {"month": month} if month else {}
     return await db.budgets.find(q, {"_id": 0}).sort("month", -1).to_list(500)
 
@@ -235,7 +235,7 @@ async def delete_budget(bid: str, user=Depends(require_role("management", "admin
 
 
 @router.get("/budgets/status")
-async def budget_status(month: str = None, user=Depends(require_user)):
+async def budget_status(month: str = None, user=Depends(require_module("expenses"))):
     month = month or datetime.now(timezone.utc).strftime("%Y-%m")
     budgets = await db.budgets.find({"month": month}, {"_id": 0}).to_list(200)
     include_test = user.get("role") == "test"

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
-from auth import require_user, require_role
+from auth import require_user, require_role, require_module
 from models import VendorCreate
 
 router = APIRouter(tags=["vendors"])
@@ -15,7 +15,7 @@ VENDOR_TYPES = ["Repair", "Tyre", "Showroom", "Breakdown", "Insurance", "Fastag"
 
 
 @router.get("/vendors")
-async def list_vendors(request: Request, user=Depends(require_user)):
+async def list_vendors(request: Request, user=Depends(require_module("vendors"))):
     p = dict(request.query_params)
     q = {}
     include_test = (p.get("include_test") or "").lower() == "true"

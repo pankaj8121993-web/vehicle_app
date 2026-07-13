@@ -6,7 +6,7 @@ Excludes test data and disposed vehicles / exited drivers.
 import re
 from fastapi import APIRouter, Depends, Query
 from database import db
-from auth import require_user
+from auth import require_user, require_module
 
 router = APIRouter(tags=["search"])
 
@@ -15,7 +15,7 @@ EXITED_STATUSES = ["resigned", "terminated"]
 
 
 @router.get("/search")
-async def search(q: str = Query(""), user=Depends(require_user)):
+async def search(q: str = Query(""), user=Depends(require_module("search"))):
     q = (q or "").strip()
     if len(q) < 2:
         return {"vehicles": [], "drivers": [], "tickets": [], "documents": []}

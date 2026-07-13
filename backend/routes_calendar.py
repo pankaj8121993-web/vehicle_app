@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
-from auth import require_user, require_role
+from auth import require_user, require_role, require_module
 from models import CalendarEventCreate
 
 router = APIRouter(tags=["calendar"])
@@ -82,7 +82,7 @@ def _expand_recurrence(event, start, end):
 
 
 @router.get("/calendar")
-async def calendar(start: str, end: str, user=Depends(require_user)):
+async def calendar(start: str, end: str, user=Depends(require_module("calendar"))):
     events = []
 
     vmap = {v["id"]: v for v in await db.vehicles.find(

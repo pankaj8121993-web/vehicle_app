@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from database import db
-from auth import require_user
+from auth import require_user, require_module
 
 router = APIRouter(tags=["fleet-status"])
 
@@ -15,7 +15,7 @@ def _now():
 
 
 @router.get("/fleet-status")
-async def fleet_status(user=Depends(require_user)):
+async def fleet_status(user=Depends(require_module("fleet-status"))):
     vehicles = await db.vehicles.find(
         {"is_test_data": {"$ne": True}}, {"_id": 0}
     ).sort("vehicle_number", 1).to_list(3000)

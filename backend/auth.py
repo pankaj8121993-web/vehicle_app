@@ -43,6 +43,53 @@ ROLE_LABELS = {
     "test": "Test User",
 }
 
+# ---------- Module access matrix (per actual role) ----------
+_ALL_ROLES = set(ROLES)
+_NO_DRIVER = _ALL_ROLES - {"driver"}
+_MGMT = {"admin", "org_admin", "management", "owner", "fleet_manager", "test"}
+_FINANCE = _MGMT | {"accounts", "viewer"}
+
+MODULE_ACCESS = {
+    "dashboard": _ALL_ROLES,          # drivers get their mobile home
+    "analytics": _NO_DRIVER,          # dashboard metrics / drilldown APIs
+    "fleet-status": _NO_DRIVER,
+    "compliance": _NO_DRIVER,
+    "calendar": _NO_DRIVER,
+    "reports": _FINANCE,
+    "vehicles": _NO_DRIVER,
+    "drivers": _NO_DRIVER,
+    "documents": _ALL_ROLES,
+    "vendors": _NO_DRIVER,
+    "trips": _ALL_ROLES,
+    "fuel": _ALL_ROLES,
+    "maintenance": _NO_DRIVER,
+    "repairs": _ALL_ROLES,
+    "tyres": _NO_DRIVER,
+    "accidents": _ALL_ROLES,
+    "fastag": _NO_DRIVER,
+    "downtime": _NO_DRIVER,
+    "expenses": _FINANCE | {"data_entry", "operations"},
+    "search": _NO_DRIVER,
+    "org-settings": {"admin", "org_admin", "management", "owner", "fleet_manager"},
+    "users": {"admin", "org_admin"},
+    "test-data": {"admin", "org_admin"},
+}
+
+
+def allowed_modules(role):
+    return sorted(m for m, roles in MODULE_ACCESS.items() if role in roles)
+
+
+def require_module(module):
+    async def dep(user=Depends(require_user)):
+        if user.get("_must_change_pw"):
+            raise HTTPException(status_code=403, detail="Must change password first")
+        role = user.get("actual_role") or user.get("role")
+        if role not in MODULE_ACCESS.get(module, set()):
+            raise HTTPException(status_code=403, detail="Your role does not have access to this module")
+        return user
+    return dep
+
 SESSION_TTL_DAYS = 7
 SLIDING_THROTTLE_MINUTES = 60
 
@@ -169,6 +216,7 @@ async def login(payload: LoginRequest):
             "org_id": user.get("org_id"),
             "org_name": await _org_name(user.get("org_id")),
             "is_demo": bool(user.get("is_demo")),
+            "modules": allowed_modules(user["role"]),
         },
     }
 
@@ -200,6 +248,7 @@ async def me(authorization: str = Header(None)):
         "org_id": user.get("org_id"),
         "org_name": await _org_name(user.get("org_id")),
         "is_demo": bool(user.get("is_demo")),
+        "modules": allowed_modules(user["role"]),
     }
 
 

@@ -2,7 +2,15 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
-from auth import require_user, require_role
+from auth import require_user, require_role, MODULE_ACCESS
+
+
+def _check_module(user, module):
+    if not module:
+        return
+    role = user.get("actual_role") or user.get("role")
+    if role not in MODULE_ACCESS.get(module, set()):
+        raise HTTPException(status_code=403, detail="Your role does not have access to this module")
 
 
 async def get_lookup_maps():
@@ -21,9 +29,10 @@ async def enrich(items):
     return items
 
 
-def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: str = "date", on_create=None, driver_can_create: bool = False):
+def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: str = "date", on_create=None, driver_can_create: bool = False, module: str = None):
     @router.get(f"/{path}")
     async def list_items(request: Request, user=Depends(require_user)):
+        _check_module(user, module)
         p = dict(request.query_params)
         q = {}
         for key in ("vehicle_id", "driver_id", "tyre_id", "category", "status", "doc_type"):

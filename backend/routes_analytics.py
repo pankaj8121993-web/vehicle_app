@@ -2,7 +2,7 @@ import io
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Response
 from database import db
-from auth import require_user
+from auth import require_user, require_module
 from helpers import gather_expenses, get_lookup_maps
 
 router = APIRouter(tags=["analytics"])
@@ -128,12 +128,12 @@ async def compute_alerts():
 
 
 @router.get("/alerts")
-async def get_alerts(user=Depends(require_user)):
+async def get_alerts(user=Depends(require_module("analytics"))):
     return await compute_alerts()
 
 
 @router.get("/dashboard")
-async def dashboard(user=Depends(require_user)):
+async def dashboard(user=Depends(require_module("analytics"))):
     today = today_str()
     in_30 = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
     month_start = month_start_str()
@@ -207,7 +207,7 @@ async def dashboard(user=Depends(require_user)):
 
 
 @router.get("/dashboard/trends")
-async def dashboard_trends(user=Depends(require_user)):
+async def dashboard_trends(user=Depends(require_module("analytics"))):
     """Last 6 months: operating cost, KM run and fuel cost per month (excludes sold/scrapped vehicles)."""
     now = datetime.now(timezone.utc)
     months = []
@@ -431,13 +431,13 @@ async def build_report(key, vehicle_id=None, driver_id=None, start_date=None, en
 
 
 @router.get("/reports")
-async def list_reports(user=Depends(require_user)):
+async def list_reports(user=Depends(require_module("reports"))):
     return REPORT_LIST
 
 
 @router.get("/reports/{key}")
 async def get_report(key: str, vehicle_id: str = None, driver_id: str = None,
-                     start_date: str = None, end_date: str = None, user=Depends(require_user)):
+                     start_date: str = None, end_date: str = None, user=Depends(require_module("reports"))):
     cols, rows = await build_report(key, vehicle_id, driver_id, start_date, end_date)
     name = next((r["name"] for r in REPORT_LIST if r["key"] == key), key)
     return {"key": key, "name": name, "columns": cols, "rows": rows}
@@ -445,7 +445,7 @@ async def get_report(key: str, vehicle_id: str = None, driver_id: str = None,
 
 @router.get("/reports/{key}/export")
 async def export_report(key: str, format: str = "excel", vehicle_id: str = None, driver_id: str = None,
-                        start_date: str = None, end_date: str = None, user=Depends(require_user)):
+                        start_date: str = None, end_date: str = None, user=Depends(require_module("reports"))):
     cols, rows = await build_report(key, vehicle_id, driver_id, start_date, end_date)
     name = next((r["name"] for r in REPORT_LIST if r["key"] == key), key)
 

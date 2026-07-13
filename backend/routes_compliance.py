@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
-from auth import require_user, require_role
+from auth import require_user, require_role, require_module
 from models import ComplianceContactCreate
 
 router = APIRouter(tags=["compliance"])
@@ -45,7 +45,7 @@ def _days_between(target_iso):
 
 @router.get("/compliance")
 async def compliance_overview(severity: str = "all", vehicle_id: str = None,
-                              days_ahead: int = 90, user=Depends(require_user)):
+                              days_ahead: int = 90, user=Depends(require_module("compliance"))):
     today = _today_iso()
     horizon = (_now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
 
@@ -164,7 +164,7 @@ async def compliance_overview(severity: str = "all", vehicle_id: str = None,
 # ---------- Compliance Contacts (E2) ----------
 
 @router.get("/compliance/contacts")
-async def list_contacts(user=Depends(require_user)):
+async def list_contacts(user=Depends(require_module("compliance"))):
     items = await db.compliance_contacts.find(
         {"is_test_data": {"$ne": True}}, {"_id": 0}
     ).sort("compliance_type", 1).to_list(500)

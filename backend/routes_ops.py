@@ -66,7 +66,7 @@ async def on_service_create(doc):
     await _update_vehicle_odometer(doc["vehicle_id"], doc.get("odometer"))
     return doc
 
-make_crud(router, "services", "services", ServiceCreate, on_create=on_service_create)
+make_crud(router, "services", "services", ServiceCreate, on_create=on_service_create, module="maintenance")
 
 
 # ---------- Greasing (Phase 1.5) ----------
@@ -74,7 +74,7 @@ async def on_greasing_create(doc):
     await _update_vehicle_odometer(doc["vehicle_id"], doc.get("odometer"))
     return doc
 
-make_crud(router, "greasings", "greasings", GreasingCreate, on_create=on_greasing_create)
+make_crud(router, "greasings", "greasings", GreasingCreate, on_create=on_greasing_create, module="maintenance")
 
 
 # ---------- Repairs / Service Tickets ----------
