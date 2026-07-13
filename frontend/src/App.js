@@ -19,6 +19,9 @@ import CalendarPage from "@/pages/CalendarPage";
 import FleetStatus from "@/pages/FleetStatus";
 import UserManagement from "@/pages/UserManagement";
 import TestDataAdmin from "@/pages/TestDataAdmin";
+import Vendors from "@/pages/Vendors";
+import DriverHome from "@/pages/DriverHome";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import {
   TripsPage, FuelPage, MaintenancePage, RepairsPage, TyresPage,
   AccidentsPage, FastagPage, DowntimePage, DocumentsPage, DriversPage,
@@ -42,12 +45,17 @@ const ProtectedRoute = ({ children, roles }) => {
   return <Layout>{children}</Layout>;
 };
 
+const HomeRoute = () => {
+  const { user } = useAuth();
+  return user?.role === "driver" ? <DriverHome /> : <Dashboard />;
+};
+
 function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/change-password" element={<ProtectedRoute><ChangePassword forced /></ProtectedRoute>} />
-      <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/" element={<ProtectedRoute><HomeRoute /></ProtectedRoute>} />
       <Route path="/vehicles" element={<ProtectedRoute><Vehicles /></ProtectedRoute>} />
       <Route path="/vehicles/:id" element={<ProtectedRoute><VehicleProfile /></ProtectedRoute>} />
       <Route path="/drivers" element={<ProtectedRoute><DriversPage /></ProtectedRoute>} />
@@ -67,6 +75,7 @@ function AppRouter() {
       <Route path="/compliance/contacts" element={<ProtectedRoute roles={["management", "admin"]}><ComplianceContacts /></ProtectedRoute>} />
       <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
       <Route path="/fleet-status" element={<ProtectedRoute><FleetStatus /></ProtectedRoute>} />
+      <Route path="/vendors" element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute roles={["admin"]}><UserManagement /></ProtectedRoute>} />
       <Route path="/admin/test-data" element={<ProtectedRoute roles={["admin"]}><TestDataAdmin /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -79,6 +88,7 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <AppRouter />
+        <InstallPrompt />
         <Toaster position="top-right" richColors />
       </BrowserRouter>
     </AuthProvider>

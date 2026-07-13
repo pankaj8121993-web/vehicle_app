@@ -221,24 +221,21 @@ class TestRepairApproval:
         requests.delete(f"{API}/repairs/{rid}", headers=h("admin"))
 
     def test_data_entry_cannot_approve(self, repair_id):
-        # data_entry can PUT (status field) — but a dedicated approval would require management.
-        # Per problem: PATCH /api/repairs/{id}/status to approved → data_entry 403.
-        # Backend uses generic PUT; check if a PATCH endpoint exists.
+        # Under new 7-stage flow, open→approved is invalid transition (400).
+        # After moving to under_review, data_entry approving must return 403.
+        requests.patch(f"{API}/repairs/{repair_id}/status",
+                       headers=h("data_entry"), json={"status": "under_review"})
         r = requests.patch(f"{API}/repairs/{repair_id}/status",
                            headers=h("data_entry"), json={"status": "approved"})
-        # Either 403 (proper RBAC) or 404/405 (endpoint missing) — report
-        assert r.status_code in (403, 404, 405), f"Unexpected: {r.status_code} {r.text}"
+        assert r.status_code == 403, f"Unexpected: {r.status_code} {r.text}"
 
     def test_management_can_approve(self, repair_id):
+        # Move through the required flow before approval
+        requests.patch(f"{API}/repairs/{repair_id}/status",
+                       headers=h("data_entry"), json={"status": "under_review"})
         r = requests.patch(f"{API}/repairs/{repair_id}/status",
                            headers=h("management"), json={"status": "approved"})
-        # Accept 200 if endpoint exists, otherwise mark via PUT
-        if r.status_code in (404, 405):
-            r2 = requests.put(f"{API}/repairs/{repair_id}",
-                              headers=h("management"), json={"status": "approved"})
-            assert r2.status_code == 200, r2.text
-        else:
-            assert r.status_code == 200, r.text
+        assert r.status_code == 200, r.text
 
 
 # ---------------- Dashboard trends ----------------
@@ -1078,6 +1075,176 @@ class TestVehicleStatistics:
                   "total_accidents", "total_operating_cost", "total_downtime_days",
                   "utilization_pct"):
             assert k in L
+
+
+class TestVendors:
+    def _mk(self, name=None, vtype="Repair"):
+        payload = {"name": name or f"Vendor {uuid.uuid4().hex[:6]}", "vendor_type": vtype,
+                   "mobile": "9998887777", "gst_number": "27ABC1234E1Z5"}
+        return requests.post(f"{API}/vendors", headers=h("admin"), json=payload)
+
+    def test_create_list_update_delete(self):
+        r = self._mk(vtype="Tyre")
+        assert r.status_code == 200, r.text
+        vid = r.json()["id"]
+        try:
+            g = requests.get(f"{API}/vendors?all=true&vendor_type=Tyre", headers=h("admin"))
+            assert any(v["id"] == vid for v in g.json())
+            u = requests.put(f"{API}/vendors/{vid}", headers=h("admin"), json={"mobile": "1234567890"})
+            assert u.status_code == 200 and u.json()["mobile"] == "1234567890"
+        finally:
+            d = requests.delete(f"{API}/vendors/{vid}", headers=h("admin"))
+            assert d.status_code == 200
+
+    def test_invalid_type_rejected(self):
+        r = requests.post(f"{API}/vendors", headers=h("admin"),
+                          json={"name": "X", "vendor_type": "Bogus"})
+        assert r.status_code == 400
+
+    def test_driver_forbidden_to_create(self):
+        r = requests.post(f"{API}/vendors", headers=h("driver"),
+                          json={"name": "Drv Vendor", "vendor_type": "Repair"})
+        assert r.status_code == 403
+
+    def test_active_only_filter(self):
+        r1 = self._mk(name=f"ActiveV {uuid.uuid4().hex[:4]}")
+        r2 = self._mk(name=f"InactiveV {uuid.uuid4().hex[:4]}")
+        v1, v2 = r1.json()["id"], r2.json()["id"]
+        try:
+            requests.put(f"{API}/vendors/{v2}", headers=h("admin"), json={"is_active": False})
+            g = requests.get(f"{API}/vendors?all=true&active_only=true", headers=h("admin"))
+            ids = {v["id"] for v in g.json()}
+            assert v1 in ids and v2 not in ids
+        finally:
+            for vid in (v1, v2):
+                requests.delete(f"{API}/vendors/{vid}", headers=h("admin"))
+
+
+class TestTicketWorkflow:
+    def _create(self, role="data_entry", category="Engine"):
+        payload = {"vehicle_id": SEEDED_VEHICLE_ID, "repair_type": "major",
+                   "issue": f"Ticket test {uuid.uuid4().hex[:6]}", "date": "2026-06-15",
+                   "ticket_category": category}
+        r = requests.post(f"{API}/repairs", headers=h(role), json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_ticket_number_auto_generated(self):
+        t = self._create()
+        try:
+            assert t["ticket_number"].startswith("TKT-2026-")
+            assert t["status"] == "open"
+        finally:
+            requests.delete(f"{API}/repairs/{t['id']}", headers=h("admin"))
+
+    def test_minor_repair_auto_closed(self):
+        payload = {"vehicle_id": SEEDED_VEHICLE_ID, "repair_type": "minor",
+                   "issue": "small fix", "date": "2026-06-15"}
+        r = requests.post(f"{API}/repairs", headers=h("admin"), json=payload)
+        try:
+            assert r.status_code == 200 and r.json()["status"] == "closed"
+        finally:
+            requests.delete(f"{API}/repairs/{r.json()['id']}", headers=h("admin"))
+
+    def test_full_seven_stage_workflow(self):
+        t = self._create()
+        tid = t["id"]
+        try:
+            stages = [
+                ("under_review", "data_entry"),
+                ("approved", "management"),
+                ("sent_for_repair", "management"),
+                ("in_repair", "management"),
+                ("repaired", "management"),
+                ("closed", "management"),
+            ]
+            for status, role in stages:
+                extras = {"vendor": "V1"} if status == "sent_for_repair" else ({"cost": 5000} if status == "closed" else {})
+                r = requests.patch(f"{API}/repairs/{tid}/status", headers=h(role),
+                                   json={"status": status, **extras})
+                assert r.status_code == 200, f"{status}: {r.text}"
+                assert r.json()["status"] == status
+            # Timestamps and 'by' fields populated
+            final = requests.get(f"{API}/repairs?page_size=100", headers=h("admin")).json()
+            row = next(x for x in final["items"] if x["id"] == tid)
+            assert row.get("approved_at") and row.get("approved_by")
+            assert row.get("closed_at") and row.get("closed_by")
+            assert row.get("cost") == 5000
+        finally:
+            requests.delete(f"{API}/repairs/{tid}", headers=h("admin"))
+
+    def test_invalid_transition_rejected(self):
+        t = self._create()
+        try:
+            r = requests.patch(f"{API}/repairs/{t['id']}/status", headers=h("admin"),
+                               json={"status": "in_repair"})
+            assert r.status_code == 400
+        finally:
+            requests.delete(f"{API}/repairs/{t['id']}", headers=h("admin"))
+
+    def test_data_entry_cannot_approve(self):
+        t = self._create()
+        tid = t["id"]
+        try:
+            requests.patch(f"{API}/repairs/{tid}/status", headers=h("data_entry"),
+                           json={"status": "under_review"})
+            r = requests.patch(f"{API}/repairs/{tid}/status", headers=h("data_entry"),
+                               json={"status": "approved"})
+            assert r.status_code == 403
+        finally:
+            requests.delete(f"{API}/repairs/{tid}", headers=h("admin"))
+
+    def test_rejection_reason_persists(self):
+        t = self._create()
+        tid = t["id"]
+        try:
+            requests.patch(f"{API}/repairs/{tid}/status", headers=h("data_entry"),
+                           json={"status": "under_review"})
+            r = requests.patch(f"{API}/repairs/{tid}/status", headers=h("management"),
+                               json={"status": "open", "rejection_reason": "Need photos"})
+            assert r.status_code == 200
+            assert r.json()["status"] == "open"
+            assert r.json()["rejection_reason"] == "Need photos"
+        finally:
+            requests.delete(f"{API}/repairs/{tid}", headers=h("admin"))
+
+
+class TestGlobalSearch:
+    def test_search_min_length(self):
+        r = requests.get(f"{API}/search?q=a", headers=h("admin"))
+        assert r.status_code == 200
+        body = r.json()
+        for k in ("vehicles", "drivers", "tickets", "documents"):
+            assert body[k] == []
+
+    def test_search_finds_vehicle(self):
+        v = requests.get(f"{API}/vehicles?all=true", headers=h("admin")).json()[0]
+        q = v["vehicle_number"][:4]
+        r = requests.get(f"{API}/search", headers=h("admin"), params={"q": q})
+        assert r.status_code == 200
+        ids = {x["id"] for x in r.json()["vehicles"]}
+        assert v["id"] in ids
+
+    def test_search_shape(self):
+        r = requests.get(f"{API}/search?q=zz", headers=h("admin"))
+        assert r.status_code == 200
+        body = r.json()
+        for k in ("vehicles", "drivers", "tickets", "documents"):
+            assert isinstance(body[k], list)
+
+    def test_search_excludes_test_data(self):
+        # Create a test-tagged vendor & vehicle via test role; ensure search doesn't return them
+        vname = f"ZZSEARCH_{uuid.uuid4().hex[:4]}"
+        create = requests.post(f"{API}/vehicles", headers=h("test"),
+                               json={"vehicle_number": vname, "make": "TestBrand", "model": "X"})
+        vid = create.json().get("id")
+        try:
+            r = requests.get(f"{API}/search", headers=h("admin"), params={"q": vname})
+            ids = {x["id"] for x in r.json()["vehicles"]}
+            assert vid not in ids
+        finally:
+            if vid:
+                requests.delete(f"{API}/vehicles/{vid}", headers=h("test"))
 
 
 

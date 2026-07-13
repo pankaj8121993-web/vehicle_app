@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -28,6 +29,7 @@ const renderCell = (col, row) => {
     case "badge": return <StatusBadge value={val} />;
     case "expiry": return <ExpiryBadge date={val} />;
     case "file": return <FileLink fileId={val} />;
+    case "boolean": return val ? <span className="text-xs font-semibold text-green-700">Yes</span> : <span className="text-xs font-semibold text-slate-400">No</span>;
     case "tags": {
       const arr = Array.isArray(val) ? val : [];
       if (!arr.length) return <span className="text-slate-400">—</span>;
@@ -43,10 +45,47 @@ const renderCell = (col, row) => {
   }
 };
 
-const FieldInput = ({ field, value, onChange, options }) => {
+const FieldInput = ({ field, value, onChange, options, form, setForm }) => {
   const testId = `form-field-${field.name}`;
   if (field.type === "textarea") {
     return <Textarea data-testid={testId} value={value ?? ""} onChange={(e) => onChange(e.target.value)} rows={2} className="rounded-none" />;
+  }
+  if (field.type === "boolean") {
+    return (
+      <Switch
+        data-testid={testId}
+        checked={!!value}
+        onCheckedChange={onChange}
+      />
+    );
+  }
+  if (field.type === "vendor_picker") {
+    const vendors = options.vendor || [];
+    const filtered = field.vendorType
+      ? vendors.filter((v) => v.vendor_type === field.vendorType || v.vendor_type === "Other")
+      : vendors;
+    const fillField = field.autoFillField || "vendor";
+    const onPick = (vid) => {
+      const v = vendors.find((x) => x.id === vid);
+      if (v && setForm) {
+        setForm((p) => ({ ...p, [fillField]: v.name, vendor_id: v.id }));
+      }
+    };
+    return (
+      <Select value="" onValueChange={onPick}>
+        <SelectTrigger data-testid={testId} className="rounded-none">
+          <SelectValue placeholder={filtered.length ? "Select a saved vendor…" : "No saved vendors — type below"} />
+        </SelectTrigger>
+        <SelectContent>
+          {filtered.map((v) => (
+            <SelectItem key={v.id} value={v.id} data-testid={`vendor-option-${v.id}`}>
+              {v.name}
+              {v.vendor_type !== field.vendorType && <span className="ml-1 text-xs text-slate-400">({v.vendor_type})</span>}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
   }
   if (field.type === "multiselect") {
     const selected = Array.isArray(value) ? value : [];
@@ -114,7 +153,7 @@ export const CrudModule = ({
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [options, setOptions] = useState({ vehicle: [], driver: [], tyre: [] });
+  const [options, setOptions] = useState({ vehicle: [], driver: [], tyre: [], vendor: [] });
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = 25;
@@ -145,7 +184,7 @@ export const CrudModule = ({
   useEffect(() => { refresh(); }, [refresh, refreshKey]);
 
   const neededOptionTypes = useMemo(
-    () => [...new Set(fields.filter((f) => ["vehicle", "driver", "tyre"].includes(f.type)).map((f) => f.type))],
+    () => [...new Set(fields.filter((f) => ["vehicle", "driver", "tyre", "vendor_picker"].includes(f.type)).map((f) => f.type))],
     [fields]
   );
 
@@ -164,6 +203,10 @@ export const CrudModule = ({
         if (neededOptionTypes.includes("tyre")) {
           const r = await api.get("/tyres", { params: { ...JSON.parse(fixedJson), all: "true" } });
           next.tyre = r.data.map((t) => ({ value: t.id, label: `${t.tyre_number} (${t.vehicle_number || ""})` }));
+        }
+        if (neededOptionTypes.includes("vendor_picker")) {
+          const r = await api.get("/vendors", { params: { all: "true", active_only: "true" } });
+          next.vendor = r.data;
         }
         setOptions((prev) => ({ ...prev, ...next }));
       } catch { /* options load failure is non-fatal */ }
@@ -198,11 +241,13 @@ export const CrudModule = ({
     }
     const payload = { ...JSON.parse(fixedJson) };
     fields.forEach((f) => {
+      if (f.type === "vendor_picker") return;  // pseudo-field; not submitted
       let v = form[f.name];
       if (v === "" || v === undefined) v = null;
       if (f.type === "number" && v !== null) v = parseFloat(v);
       payload[f.name] = v;
     });
+    if (form.vendor_id) payload.vendor_id = form.vendor_id;
     setSaving(true);
     try {
       if (editing) {
@@ -337,7 +382,7 @@ export const CrudModule = ({
                 <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {f.label}{f.required && <span className="text-red-600"> *</span>}
                 </Label>
-                <FieldInput field={f} value={form[f.name]} onChange={(v) => setForm((p) => ({ ...p, [f.name]: v }))} options={options} />
+                <FieldInput field={f} value={form[f.name]} onChange={(v) => setForm((p) => ({ ...p, [f.name]: v }))} options={options} form={form} setForm={setForm} />
               </div>
             ))}
             <Button data-testid={`${prefix}-submit-btn`} onClick={submit} disabled={saving} className="w-full rounded-none bg-slate-900 text-white hover:bg-slate-800">

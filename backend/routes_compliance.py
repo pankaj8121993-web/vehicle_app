@@ -99,7 +99,6 @@ async def compliance_overview(severity: str = "all", vehicle_id: str = None,
         })
     licenses.sort(key=lambda r: r["license_expiry"])
 
-    in_15 = (_now() + timedelta(days=15)).strftime("%Y-%m-%d")
     # Services + greasings: latest per vehicle, alert if due_date <= 30d or odometer >= due_km
     services = []
     greasings = []

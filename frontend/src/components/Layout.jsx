@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
 import { ROLE_LABELS } from "@/lib/format";
+import { GlobalSearch } from "@/components/GlobalSearch";
 import {
   LayoutDashboard, Truck, Users, FileText, Route, Fuel, Wrench, Hammer,
   CircleDot, AlertTriangle, Radio, Clock, IndianRupee, BarChart3, LogOut, Menu,
   ChevronDown, KeyRound, ShieldCheck, TestTube, FlaskConical,
-  ShieldAlert, Calendar, Activity,
+  ShieldAlert, Calendar, Activity, Building2,
 } from "lucide-react";
 
 const BASE_NAV = [
@@ -24,12 +25,13 @@ const BASE_NAV = [
     { to: "/vehicles", label: "Vehicles", icon: Truck },
     { to: "/drivers", label: "Drivers", icon: Users },
     { to: "/documents", label: "Documents", icon: FileText },
+    { to: "/vendors", label: "Vendors", icon: Building2 },
   ]},
   { group: "OPERATIONS", items: [
     { to: "/trips", label: "Trips", icon: Route },
     { to: "/fuel", label: "Fuel", icon: Fuel },
     { to: "/maintenance", label: "Maintenance", icon: Wrench },
-    { to: "/repairs", label: "Repairs", icon: Hammer },
+    { to: "/repairs", label: "Tickets", icon: Hammer },
   ]},
   { group: "ASSETS & COSTS", items: [
     { to: "/tyres", label: "Tyres", icon: CircleDot },
@@ -118,7 +120,7 @@ export const Layout = ({ children }) => {
         {role === "test" && (
           <div className="border-b border-amber-300 bg-amber-100 px-4 py-2 text-center text-xs font-bold uppercase tracking-[0.12em] text-amber-900" data-testid="test-mode-banner">
             <FlaskConical className="-mt-0.5 mr-1.5 inline h-3.5 w-3.5" />
-            Test Mode — every record you create is tagged is_test_data and won't affect real reports
+            Test Mode — every record you create is tagged is_test_data and won&apos;t affect real reports
           </div>
         )}
         <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 md:px-6">
@@ -136,6 +138,9 @@ export const Layout = ({ children }) => {
               </SheetContent>
             </Sheet>
             <p className="font-heading text-sm font-bold uppercase tracking-wide text-slate-500 lg:hidden">Rajguru Fleet</p>
+          </div>
+          <div className="hidden flex-1 px-6 lg:block">
+            <GlobalSearch />
           </div>
           <div className="flex items-center gap-3">
             <DropdownMenu>

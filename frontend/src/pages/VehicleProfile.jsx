@@ -5,7 +5,8 @@ import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
 import { StatusBadge, ExpiryBadge } from "@/components/StatusBadge";
 import { CrudModule } from "@/components/CrudModule";
 import { ExpenseLedger } from "@/components/ExpenseLedger";
-import { CloseTripAction, RepairWorkflowAction } from "@/pages/ModulePages";
+import { CloseTripAction } from "@/pages/ModulePages";
+import { TicketDetail } from "@/components/TicketDetail";
 import { VehiclePhotos } from "@/components/VehiclePhotos";
 import { VehicleStatistics } from "@/components/VehicleStatistics";
 import {
@@ -32,7 +33,7 @@ const TABS = [
   { value: "fuel", label: "Fuel" },
   { value: "services", label: "Service" },
   { value: "greasing", label: "Greasing" },
-  { value: "repairs", label: "Repairs" },
+  { value: "repairs", label: "Tickets" },
   { value: "tyres", label: "Tyres" },
   { value: "accidents", label: "Accidents" },
   { value: "fastag", label: "Fastag" },
@@ -45,6 +46,8 @@ export default function VehicleProfile() {
   const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTicket, setActiveTicket] = useState(null);
+  const [ticketRefreshKey, setTicketRefreshKey] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -146,7 +149,22 @@ export default function VehicleProfile() {
           <TabsContent value="fuel"><CrudModule {...fuelConfig} fixedFilters={ff} testIdPrefix="vp-fuel" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="services"><CrudModule {...serviceConfig} fixedFilters={ff} testIdPrefix="vp-services" readOnly={isDisposed} /></TabsContent>
           <TabsContent value="greasing"><CrudModule {...greasingConfig} fixedFilters={ff} testIdPrefix="vp-greasing" readOnly={isDisposed} /></TabsContent>
-          <TabsContent value="repairs"><CrudModule {...repairConfig} fixedFilters={ff} rowActions={isDisposed ? undefined : RepairWorkflowAction} testIdPrefix="vp-repairs" readOnly={isDisposed} /></TabsContent>
+          <TabsContent value="repairs">
+            <CrudModule
+              {...repairConfig}
+              fixedFilters={ff}
+              onRowClick={isDisposed ? undefined : (row) => setActiveTicket(row)}
+              refreshKey={ticketRefreshKey}
+              testIdPrefix="vp-repairs"
+              readOnly={isDisposed}
+            />
+            <TicketDetail
+              ticket={activeTicket}
+              open={!!activeTicket}
+              onClose={() => setActiveTicket(null)}
+              onUpdated={(updated) => { setActiveTicket(updated); setTicketRefreshKey((k) => k + 1); }}
+            />
+          </TabsContent>
           <TabsContent value="tyres">
             <CrudModule {...tyreConfig} fixedFilters={ff} testIdPrefix="vp-tyres" readOnly={isDisposed} />
             <h3 className="mb-3 mt-8 text-base font-bold uppercase tracking-tight text-slate-800">Tyre Events</h3>

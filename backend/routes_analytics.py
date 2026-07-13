@@ -115,7 +115,7 @@ async def compute_alerts():
                            "message": f"Fastag balance low (₹{round(v.get('fastag_balance') or 0)}) — {v['vehicle_number']}",
                            "vehicle_number": v["vehicle_number"], "due_date": None})
 
-    pending = await db.repairs.find({"status": "reported", "repair_type": "major"}, {"_id": 0}).to_list(500)
+    pending = await db.repairs.find({"status": {"$in": ["open", "under_review"]}, "repair_type": "major"}, {"_id": 0}).to_list(500)
     for r in pending:
         if r["vehicle_id"] not in vmap:
             continue
@@ -154,7 +154,7 @@ async def dashboard(user=Depends(require_user)):
     running_today = len(set(t["vehicle_id"] for t in trips_today))
     active_trips = await db.trips.count_documents({"status": "ongoing", "vehicle_id": {"$in": list(active_ids)}})
     under_repair_ids = set(r["vehicle_id"] for r in await db.repairs.find(
-        {"status": {"$in": ["reported", "approved", "in_repair"]}, "vehicle_id": {"$in": list(active_ids)}},
+        {"status": {"$in": ["open", "under_review", "approved", "sent_for_repair", "in_repair", "repaired"]}, "vehicle_id": {"$in": list(active_ids)}},
         {"_id": 0, "vehicle_id": 1}).to_list(2000))
     under_repair_ids |= set(v["id"] for v in vehicles if v.get("status") == "under_repair")
     vehicles_idle = max(total_vehicles - running_today - len(under_repair_ids), 0)

@@ -88,7 +88,7 @@ async def vehicles_under_repair(user=Depends(require_user)):
     """Vehicles with open repair tickets (reported/approved/in_repair) — active vehicles only."""
     vmap = await _active_vehicle_map()
     repairs = await db.repairs.find(
-        {"status": {"$in": ["reported", "approved", "in_repair"]}}, {"_id": 0}
+        {"status": {"$in": ["open", "under_review", "approved", "sent_for_repair", "in_repair", "repaired"]}}, {"_id": 0}
     ).sort("date", -1).to_list(5000)
     rows = []
     seen = set()
@@ -192,7 +192,6 @@ async def top_cost_vehicles(month: str = None, user=Depends(require_user)):
         end_y, end_m = y + 1, 1
     else:
         end_y, end_m = y, m + 1
-    end_excl = f"{end_y:04d}-{end_m:02d}-01"
     # gather_expenses uses $lte; emulate exclusive by going one day before
     end_inclusive = (datetime(end_y, end_m, 1, tzinfo=timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
 

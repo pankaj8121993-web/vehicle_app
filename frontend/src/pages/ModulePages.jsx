@@ -1,10 +1,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
-import { useAuth } from "@/context/AuthContext";
-import { canApprove } from "@/lib/permissions";
 import { CrudModule } from "@/components/CrudModule";
 import { PeriodFilter } from "@/components/PeriodFilter";
+import { TicketDetail } from "@/components/TicketDetail";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   tripConfig, fuelConfig, serviceConfig, repairConfig, tyreConfig, tyreEventConfig,
@@ -17,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { CheckCircle2, ThumbsUp, Play, Flag, RefreshCw, Loader2 } from "lucide-react";
+import { Flag, RefreshCw, Loader2 } from "lucide-react";
 
 export const PageHeader = ({ title, subtitle }) => (
   <div className="mb-6">
@@ -63,36 +62,6 @@ const CloseTripButton = ({ row, refresh }) => {
         </DialogContent>
       </Dialog>
     </>
-  );
-};
-
-// ---- Repair workflow action ----
-const NEXT_REPAIR = { reported: ["approved", "Approve", ThumbsUp], approved: ["in_repair", "Start", Play], in_repair: ["completed", "Complete", CheckCircle2] };
-
-export const RepairWorkflowAction = (row, refresh) => {
-  if (row.repair_type !== "major" || !NEXT_REPAIR[row.status]) return null;
-  return <RepairActionButton row={row} refresh={refresh} />;
-};
-
-const RepairActionButton = ({ row, refresh }) => {
-  const { user } = useAuth();
-  const [next, label, Icon] = NEXT_REPAIR[row.status];
-  if (next === "approved" && !canApprove(user?.role)) {
-    return <span className="text-[11px] font-semibold uppercase text-slate-400">Awaiting approval</span>;
-  }
-  const advance = async () => {
-    try {
-      await api.patch(`/repairs/${row.id}/status`, { status: next });
-      toast.success(`Repair ${next.replace("_", " ")}`);
-      refresh();
-    } catch (err) {
-      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Action failed");
-    }
-  };
-  return (
-    <Button data-testid={`repair-action-${row.id}`} variant="outline" size="sm" className="h-7 rounded-none border-blue-300 px-2 text-xs text-blue-700 hover:bg-blue-50" onClick={advance}>
-      <Icon className="mr-1 h-3 w-3" /> {label}
-    </Button>
   );
 };
 
@@ -142,10 +111,29 @@ export const MaintenancePage = () => {
 
 export const RepairsPage = () => {
   const { filters, setRange } = useDateRange();
+  const [activeTicket, setActiveTicket] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const handleUpdated = (updated) => {
+    setActiveTicket(updated);
+    setRefreshKey((k) => k + 1);
+  };
   return (
-    <div><PageHeader title="Breakdown & Repairs" subtitle="Minor repairs are logged directly; major repairs follow Reported → Approved → In Repair → Completed" />
+    <div data-testid="tickets-page">
+      <PageHeader title="Service Tickets" subtitle="7-stage workflow: Open → Under Review → Approved → Sent for Repair → In Repair → Repaired → Closed" />
       <PeriodFilter testIdPrefix="repairs-period" onChange={setRange} />
-      <CrudModule {...repairConfig} fixedFilters={filters} rowActions={RepairWorkflowAction} /></div>
+      <CrudModule
+        {...repairConfig}
+        fixedFilters={filters}
+        onRowClick={(row) => setActiveTicket(row)}
+        refreshKey={refreshKey}
+      />
+      <TicketDetail
+        ticket={activeTicket}
+        open={!!activeTicket}
+        onClose={() => setActiveTicket(null)}
+        onUpdated={handleUpdated}
+      />
+    </div>
   );
 };
 

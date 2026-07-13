@@ -137,6 +137,24 @@ class RepairCreate(BaseModel):
     root_cause: Optional[str] = None
     file_id: Optional[str] = None
     notes: Optional[str] = None
+    # Ticket fields (Checkpoint 4)
+    ticket_category: Optional[str] = None  # Engine | Clutch | Brake | Electrical | Suspension | Body Damage | Other
+    photo_file_ids: Optional[List[str]] = []
+    vendor_id: Optional[str] = None
+
+
+class VendorCreate(BaseModel):
+    name: str
+    vendor_type: str  # Repair | Tyre | Showroom | Breakdown | Insurance | Fastag | Fuel | Other
+    primary_contact: Optional[str] = None
+    mobile: Optional[str] = None
+    alternate_contact: Optional[str] = None
+    alternate_mobile: Optional[str] = None
+    address: Optional[str] = None
+    gst_number: Optional[str] = None
+    email: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = True
 
 
 class TyreCreate(BaseModel):

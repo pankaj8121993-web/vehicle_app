@@ -56,7 +56,8 @@ def _expand_recurrence(event, start, end):
     steps = 0
     while cur <= cap_d and cur <= end_d and steps < 365:
         if cur >= start_d:
-            o = dict(event); o["date"] = cur.isoformat()
+            o = dict(event)
+            o["date"] = cur.isoformat()
             out.append(o)
         if rec == "weekly":
             cur += timedelta(days=7)

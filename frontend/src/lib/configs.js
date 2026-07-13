@@ -25,6 +25,14 @@ export const COMPLIANCE_TYPES = [
   "RC", "Insurance", "Fitness", "Permit", "PUC", "Road Tax", "Fastag", "License", "Other",
 ];
 
+export const TICKET_CATEGORIES = [
+  "Engine", "Clutch", "Brake", "Electrical", "Suspension", "Body Damage", "Other",
+];
+
+export const VENDOR_TYPES = [
+  "Repair", "Tyre", "Showroom", "Breakdown", "Insurance", "Fastag", "Fuel", "Other",
+];
+
 const sel = (arr) => arr.map((v) => ({ value: v, label: v }));
 
 export const vehicleConfig = {
@@ -200,6 +208,7 @@ export const serviceConfig = {
     { name: "service_type", label: "Service Type", type: "select", options: sel(SERVICE_TYPES), required: true },
     { name: "date", label: "Service Date", type: "date", required: true },
     { name: "odometer", label: "Odometer", type: "number", suffix: "KM" },
+    { name: "_vendor_picker", label: "Pick from saved vendors (optional)", type: "vendor_picker", vendorType: "Repair", autoFillField: "vendor" },
     { name: "vendor", label: "Vendor / Workshop" },
     { name: "responsible_person", label: "Person Responsible" },
     { name: "cost", label: "Cost", type: "number", suffix: "₹", default: 0 },
@@ -211,23 +220,25 @@ export const serviceConfig = {
 };
 
 export const repairConfig = {
-  title: "Repair",
+  title: "Ticket",
   endpoint: "repairs",
   columns: [
+    { key: "ticket_number", label: "Ticket #" },
     { key: "date", label: "Date", type: "date" },
     { key: "vehicle_number", label: "Vehicle" },
-    { key: "repair_type", label: "Type", type: "badge" },
+    { key: "ticket_category", label: "Category" },
     { key: "issue", label: "Issue" },
+    { key: "status", label: "Status", type: "badge" },
     { key: "vendor", label: "Vendor" },
     { key: "cost", label: "Cost", type: "currency" },
-    { key: "downtime_days", label: "Downtime (D)", type: "number" },
-    { key: "status", label: "Status", type: "badge" },
   ],
   fields: [
     { name: "vehicle_id", label: "Vehicle", type: "vehicle", required: true },
-    { name: "repair_type", label: "Repair Type", type: "select", options: [{ value: "minor", label: "Minor (direct entry)" }, { value: "major", label: "Major (approval workflow)" }], required: true },
+    { name: "repair_type", label: "Repair Type", type: "select", options: [{ value: "minor", label: "Minor (direct entry)" }, { value: "major", label: "Major (ticket workflow)" }], required: true },
+    { name: "ticket_category", label: "Category", type: "select", options: sel(TICKET_CATEGORIES) },
     { name: "issue", label: "Issue / Breakdown", required: true },
     { name: "date", label: "Date", type: "date", required: true },
+    { name: "_vendor_picker", label: "Pick from saved vendors (optional)", type: "vendor_picker", vendorType: "Repair", autoFillField: "vendor" },
     { name: "vendor", label: "Vendor" },
     { name: "cost", label: "Repair Cost", type: "number", suffix: "₹", default: 0 },
     { name: "downtime_days", label: "Downtime Days", type: "number", default: 0 },
@@ -400,6 +411,32 @@ export const greasingConfig = {
     { name: "next_due_km", label: "Next Due KM", type: "number", suffix: "KM" },
     { name: "file_id", label: "Invoice Upload", type: "file" },
     { name: "notes", label: "Notes", type: "textarea" },
+  ],
+};
+
+export const vendorConfig = {
+  title: "Vendor",
+  endpoint: "vendors",
+  columns: [
+    { key: "name", label: "Vendor Name" },
+    { key: "vendor_type", label: "Type", type: "badge" },
+    { key: "primary_contact", label: "Contact" },
+    { key: "mobile", label: "Mobile" },
+    { key: "gst_number", label: "GST" },
+    { key: "is_active", label: "Active", type: "boolean" },
+  ],
+  fields: [
+    { name: "name", label: "Vendor Name", required: true },
+    { name: "vendor_type", label: "Vendor Type", type: "select", options: sel(VENDOR_TYPES), required: true },
+    { name: "primary_contact", label: "Primary Contact Person" },
+    { name: "mobile", label: "Mobile" },
+    { name: "alternate_contact", label: "Alternate Contact Person" },
+    { name: "alternate_mobile", label: "Alternate Mobile" },
+    { name: "email", label: "Email" },
+    { name: "address", label: "Address", type: "textarea" },
+    { name: "gst_number", label: "GST Number" },
+    { name: "notes", label: "Notes", type: "textarea" },
+    { name: "is_active", label: "Active", type: "boolean", default: true },
   ],
 };
 

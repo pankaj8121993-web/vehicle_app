@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend end-to-end validation of Commit B (CP4 Service Tickets, E3 Vendor Master, CP5 Global Search + PWA + Driver Mobile Home) on preview. All requested critical flows verified working: admin login (no compile overlay), GlobalSearch grouped results / min-length / no-match empty state, Vendor Master CRUD, 7-stage Ticket workflow (Open→Under Review→Approved→Sent for Repair→In Repair→Repaired→Closed with vendor + final cost), data_entry RBAC (no Approve/Reject, shows 'Awaiting Management or Admin approval'), vendor picker on both Service and Ticket forms auto-fills vendor, Driver Home renders with 8 tiles and 'Contact Not Configured' disabled tile, Vehicle Profile Tickets tab opens TicketDetail drawer, and PWA assets (manifest, service-worker, icon-192, icon-512) all HTTP 200. Sharma Motors Test vendor, TKT-2026-0007, TKT-2026-0008 were cleaned up post-testing. Preview app is production-ready with 1 minor UI nit noted below.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TicketDetail (drawer subtitle)", "issue": "Occasionally the drawer subtitle displays the raw vehicle UUID (e.g. '0e572cbb-d447-4107-a08b-...') instead of the human-readable vehicle_number after rapid successive PATCH /repairs/{id}/status transitions. First open shows 'MH 12 AB 1234' correctly; after Send-to-Vendor → In Repair → Repaired the subtitle regresses to UUID. Suspected cause: TicketDetail's refetch after status action does not re-hydrate vehicle_number (routes_ops.py PATCH response may omit vehicle_number, and the component copies raw response). Reopening drawer fresh from list re-fetches with enrichment and displays correctly.", "selector": "[data-testid=\"ticket-detail-drawer\"] header subtitle", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_fleet_backend.py"],
+  "action_items": [
+    "Fix TicketDetail vehicle subtitle regression: ensure PATCH /repairs/{id}/status response enriches vehicle_number OR keep the previously-loaded vehicle number in local state instead of replacing with the raw API payload."
+  ],
+  "critical_code_review_comments": [
+    "GlobalSearch: single-char query returned no results but no helper hint text ('Type at least 2 characters') was rendered — behavior matches min-length=2 requirement functionally but consider adding a hint for UX clarity.",
+    "TicketDetail: works well with role gating and 7-stage timeline including timestamps + reviewer name. Photos section shows 0/8 correctly.",
+    "Vendor picker on Send-to-Vendor dialog is a native HTML <select> (not shadcn Select), which is inconsistent with other pickers on the page but functionally correct.",
+    "Driver Home: 'End Trip' tile appears NOT disabled because driver1 actually has an ongoing trip (banner 'Ongoing trip — MH 12 AB 1234'); requirement to show disabled applies only when no ongoing trip. Verified logic OK.",
+    "Vehicles route /vehicles/{id} and Vehicle Profile → Tickets tab correctly opens the same TicketDetail drawer."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "~98% — 1 minor cosmetic issue"},
+  "test_credentials": "Passwords reset to seeded defaults after test (admin/rajguru@2026, manager/manager@2026, dataentry1/dataentry@2026, driver1/driver@2026).",
+  "seed_data_creation": "Created and DELETED: vendor 'Sharma Motors Test' (Repair, 9876543210, 27ABC1234E1Z5); tickets TKT-2026-0007 (full 7-stage workflow → closed with cost ₹5000) and TKT-2026-0008 (used for data_entry RBAC test in under_review status). Note: an existing vendor 'Sharma Motors' (without ' Test' suffix) was already present before this session and left untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All Commit B flows verified. TKT-2026-0001/0002/0004/0005/0006 pre-seeded tickets preserved. Backend was not retested here (frontend-only scope; prior 94/94 pytest pass). PWA /manifest.json, /service-worker.js, /icon-192.png, /icon-512.png all return 200. One minor UI regression noted: TicketDetail drawer subtitle may render vehicle UUID after rapid status transitions — reload of drawer restores vehicle_number. RBAC for data_entry confirmed: Approve/Reject hidden, 'Awaiting Management or Admin approval' shown. Vendor picker on both /maintenance (services) Add Service and /repairs Add Ticket auto-fills vendor field on selection. Driver Home renders under '/' for role=driver only with 8 data-testid='driver-tile-*' tiles.",
+  "rca_of_the_issue": "Drawer-subtitle-UUID nit RCA: TicketDetail component appears to set local state directly from the PATCH /repairs/{id}/status response. GET /api/repairs performs vehicle_number enrichment (see routes_ops.py list handler) but PATCH likely returns the raw record without enrichment. Fix options: (a) enrich the PATCH response server-side to include vehicle_number, or (b) on the frontend, preserve the previously-loaded vehicle_number field when merging the PATCH response into state."
+}
