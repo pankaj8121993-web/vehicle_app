@@ -3,7 +3,7 @@ import requests
 
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
-APP_NAME = "rajguru-fleet"
+APP_NAME = os.environ.get("APP_NAME", "rajguru-fleet")  # keep default: existing uploads live under this namespace
 
 storage_key = None  # Module-level, set once and reused globally
 
