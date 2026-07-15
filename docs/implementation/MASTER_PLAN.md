@@ -208,9 +208,12 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 > - Added `backend/rotate_legacy_credentials.py`: an auditable, dry-run-by-default
 >   management command that rotates or deactivates ONLY the legacy
 >   `created_by:"system"` accounts and revokes their sessions, driven by a
->   reviewed no-password manifest. It hashes with the app bcrypt, sets
->   `must_change_password`, protects against administrator lockout, excludes demo
->   accounts with multiple markers, and writes non-secret `security_audit` records.
+>   reviewed no-password **exhaustive** manifest. It hashes with the app bcrypt,
+>   sets `must_change_password`, enforces **per-organisation** administrator-lockout
+>   protection (recovery admin declared by exact `user_id`, validated to belong to
+>   each affected organisation; an admin in another org can never satisfy it),
+>   excludes demo accounts with multiple markers, and writes non-secret
+>   `security_audit` records.
 > - Added `docs/implementation/CREDENTIAL_ROTATION.md` (backup/verify/apply/restart/
 >   rollback runbook) and focused tests in `backend/tests/test_rotate_legacy_credentials.py`.
 > - **NOT done:** the actual production rotation/session-revocation run (requires a

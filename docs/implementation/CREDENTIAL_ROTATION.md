@@ -85,14 +85,23 @@ only. No passwords or hashes are ever shown. Record the `user_id`s.
 
 ## 4. Build the reviewed manifest (no passwords in it)
 
-Create `manifest.json`. It must declare the operator, the recovery administrator,
-and one action per targeted account. **Passwords never go in the manifest.**
+Create `manifest.json`. The manifest must be **exhaustive**: every legacy account
+returned by `list` in step 3 must appear **exactly once** with an explicit action.
+It must also declare a **per-organisation recovery administrator** for every
+organisation affected by a `rotate`/`deactivate`. **Passwords never go in the
+manifest.**
 
 ```json
 {
   "operator": "ops-person@your-org",
-  "recovery_admin_username": "admin",
-  "recovery_admin_has_known_password": false,
+  "recovery_admins": [
+    {
+      "user_id": "<uuid-of-admin>",
+      "username": "admin",
+      "org_id": "org-rajguru-foods",
+      "has_known_password": false
+    }
+  ],
   "actions": [
     { "user_id": "<uuid-of-admin>",      "username": "admin",      "action": "rotate" },
     { "user_id": "<uuid-of-manager>",    "username": "manager",    "action": "rotate" },
@@ -103,15 +112,27 @@ and one action per targeted account. **Passwords never go in the manifest.**
 }
 ```
 
-Field notes:
-- `recovery_admin_username` — the administrator the operator will use for
-  continued access. Must be an active, non-demo administrative account.
+**`recovery_admins` (per affected organisation):**
+- One entry per organisation affected by this run; declared by **exact `user_id`**
+  (never username alone — usernames can repeat across organisations).
+- The command validates the entry's `username`, `org_id`, administrative role and
+  active status against the database, and rejects any cross-organisation or
+  mismatched declaration. An administrator in one organisation can **never**
+  protect another organisation.
+- The recovery admin may be a legacy `rotate`/`skip` account or a **non-legacy
+  bootstrap/onboarding administrator in the same organisation**.
 - If the recovery admin is set to `rotate`, a fresh known-good password is entered
-  interactively, so `recovery_admin_has_known_password` may stay `false`.
-- If the recovery admin is `skip` or is not listed at all, you must set
-  `recovery_admin_has_known_password: true` to assert you already hold a working
-  password for it; otherwise the command refuses.
+  interactively, so `has_known_password` may stay `false`. If it is `skip` or is a
+  non-legacy admin not listed in `actions`, set `has_known_password: true` to
+  assert you already hold a working password for it; otherwise the command refuses.
+- Every affected organisation must retain **at least one active, non-demo
+  administrator** after all deactivations, or the manifest is rejected.
+
+**`actions` (exhaustive):**
 - `action`: `rotate` | `deactivate` | `skip`.
+- Every discovered legacy account must be present exactly once; omitting any is
+  rejected. Extra/unknown/duplicate/demo/non-legacy or username-mismatched
+  entries are rejected.
 
 **Recommended production classification** (operator confirms explicitly; the
 command never decides from usernames alone):
@@ -119,6 +140,12 @@ command never decides from usernames alone):
 - `admin`, `manager`, `dataentry1`, `driver1` (potentially legitimate) → `rotate`
 - Demo accounts → always excluded (cannot be listed)
 - Non-legacy staff → always excluded (cannot be listed)
+
+> The legacy seeder created all five accounts in a single organisation
+> (`org-rajguru-foods`), so a real run has one affected organisation and one
+> recovery-admin entry. The per-organisation structure above is enforced
+> regardless, so the command stays correct if legacy accounts ever span
+> multiple organisations.
 
 ---
 
@@ -128,10 +155,13 @@ command never decides from usernames alone):
 python -m rotate_legacy_credentials apply --manifest manifest.json
 ```
 
-Review the planned per-account actions and totals. Dry-run performs **zero**
-writes and creates **no** audit records. Resolve any manifest rejection
-(unknown/duplicate/demo/non-legacy target, integrity mismatch, or admin-lockout
-pre-flight failure) before continuing.
+The dry-run prints the affected organisations, the per-organisation recovery
+administrators, and the **complete discovered legacy set** with each account's
+`org_id`, selected action (including explicit `skip`) and planned outcome. Review
+it in full. Dry-run performs **zero** writes and creates **no** audit records.
+Resolve any manifest rejection (non-exhaustive manifest, unknown/duplicate/demo/
+non-legacy target, integrity mismatch, missing/cross-organisation recovery admin,
+or per-organisation admin-lockout pre-flight failure) before continuing.
 
 ---
 

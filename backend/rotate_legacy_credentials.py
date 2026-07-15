@@ -12,11 +12,15 @@ Design summary
 --------------
 * Strict target filter: ``created_by == "system"`` and NOT a demo account.
 * Dry-run is the default; ``--apply`` is required to write anything.
-* Operator supplies a reviewed JSON *manifest* choosing an action per account
-  (``rotate`` / ``deactivate`` / ``skip``). The manifest never contains a
-  password. Passwords for rotations are entered interactively (hidden, twice).
-* Pre-flight refuses to run if it would remove the last active administrator or
-  if the declared recovery administrator is not left with a known-good password.
+* Operator supplies a reviewed, **exhaustive** JSON *manifest*: every discovered
+  legacy account must appear exactly once with an explicit ``rotate`` /
+  ``deactivate`` / ``skip`` action. The manifest never contains a password;
+  passwords for rotations are entered interactively (hidden, twice).
+* Administrator lockout protection is **per organisation**: every organisation
+  affected by a rotate/deactivate must retain at least one active, non-demo
+  administrator, and the manifest must declare a validated recovery
+  administrator (by exact ``user_id``) that belongs to each affected
+  organisation. An admin in another organisation can never satisfy this.
 * Sessions are revoked only for a successfully changed account, only for that
   user, never for demo users. Session tokens are never printed.
 * Every applied action is recorded in a global ``security_audit`` collection
@@ -114,13 +118,17 @@ async def find_legacy_accounts(db) -> list:
     return accounts
 
 
-async def _count_active_admins(db, *, exclude_ids=None) -> int:
-    """Count active, non-demo administrative accounts across the whole DB,
-    optionally excluding some user ids (e.g. those being deactivated)."""
+async def _count_active_admins_in_org(db, org_id, *, exclude_ids=None) -> int:
+    """Count active, non-demo administrative accounts in ONE organisation,
+    optionally excluding some user ids (e.g. those being deactivated).
+
+    Lockout protection is per-organisation: in a multi-tenant system an admin in
+    another organisation must never be able to satisfy this org's requirement.
+    """
     exclude_ids = set(exclude_ids or [])
     n = 0
     cursor = db.users.find(
-        {"role": {"$in": list(ADMIN_ROLES)}, "is_active": True},
+        {"org_id": org_id, "role": {"$in": list(ADMIN_ROLES)}, "is_active": True},
         SAFE_USER_PROJECTION,
     )
     async for u in cursor:
@@ -141,11 +149,73 @@ def _validate_password_value(password: str) -> None:
         raise RotationError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
 
 
-async def validate_manifest(db, manifest: dict) -> dict:
-    """Validate a reviewed action manifest against the live legacy set.
+async def _validate_recovery_admins(db, manifest: dict) -> dict:
+    """Validate the per-organisation recovery-admin section.
 
-    Returns a normalised plan: {"operator", "recovery_admin_id",
-    "recovery_admin_known_password", "entries": [{user, action}...]}.
+    Returns {org_id: {"user": <recovery user>, "has_known_password": bool}}.
+    Each recovery admin is identified by exact user_id (never username alone),
+    and its username / org_id / role / active status are all validated. Cross-
+    organisation and ambiguous declarations are rejected.
+    """
+    raw = manifest.get("recovery_admins", [])
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise RotationError("Manifest 'recovery_admins' must be a list")
+
+    by_org = {}
+    for i, r in enumerate(raw):
+        if not isinstance(r, dict):
+            raise RotationError(f"recovery_admins[{i}] must be an object")
+        if "password" in r:
+            raise RotationError(f"recovery_admins[{i}] must not contain a password")
+        uid = str(r.get("user_id") or "").strip()
+        if not uid:
+            raise RotationError(f"recovery_admins[{i}] must identify the admin by 'user_id'")
+        declared_org = str(r.get("org_id") or "").strip()
+        if not declared_org:
+            raise RotationError(f"recovery_admins[{i}] must declare 'org_id'")
+        declared_username = str(r.get("username") or "").strip().lower()
+        has_known = bool(r.get("has_known_password", False))
+
+        user = await db.users.find_one({"id": uid}, SAFE_USER_PROJECTION)
+        if user is None:
+            raise RotationError(f"recovery_admins[{i}] references unknown user_id")
+        if is_demo_account(user):
+            raise RotationError(f"recovery_admins[{i}] cannot be a demo account")
+        if user.get("role") not in ADMIN_ROLES:
+            raise RotationError(
+                f"recovery_admins[{i}] must have an administrative role "
+                f"(got {user.get('role')!r})"
+            )
+        if not user.get("is_active", True):
+            raise RotationError(f"recovery_admins[{i}] account is not active")
+        if declared_username and declared_username != user["username"]:
+            raise RotationError(
+                f"recovery_admins[{i}] username does not match the user_id's actual "
+                f"username — refusing on integrity mismatch"
+            )
+        if user.get("org_id") != declared_org:
+            raise RotationError(
+                f"recovery_admins[{i}] declares org_id {declared_org!r} but the "
+                f"user belongs to {user.get('org_id')!r} — cross-organisation "
+                f"recovery declaration refused"
+            )
+        if declared_org in by_org:
+            raise RotationError(
+                f"recovery_admins declares more than one recovery admin for "
+                f"organisation {declared_org!r} — ambiguous"
+            )
+        by_org[declared_org] = {"user": user, "has_known_password": has_known}
+    return by_org
+
+
+async def validate_manifest(db, manifest: dict) -> dict:
+    """Validate a reviewed, exhaustive action manifest against the live legacy set.
+
+    Returns a normalised plan:
+        {"operator", "entries": [{user, action}...],
+         "recovery_admins": {org_id: {...}}, "affected_orgs": [...]}.
     Raises RotationError on any structural or safety problem. Performs NO writes.
     """
     if not isinstance(manifest, dict):
@@ -155,17 +225,11 @@ async def validate_manifest(db, manifest: dict) -> dict:
     if not operator:
         raise RotationError("Manifest must declare a non-empty 'operator' identifier")
 
-    recovery_username = str(manifest.get("recovery_admin_username") or "").strip().lower()
-    if not recovery_username:
-        raise RotationError("Manifest must declare 'recovery_admin_username'")
-    recovery_known = bool(manifest.get("recovery_admin_has_known_password", False))
-
     raw_actions = manifest.get("actions")
     if not isinstance(raw_actions, list) or not raw_actions:
         raise RotationError("Manifest 'actions' must be a non-empty list")
 
     legacy = {a["id"]: a for a in await find_legacy_accounts(db)}
-    legacy_by_username = {a["username"]: a for a in legacy.values()}
 
     seen_ids = set()
     entries = []
@@ -209,59 +273,90 @@ async def validate_manifest(db, manifest: dict) -> dict:
             )
         entries.append({"user": user, "action": action})
 
-    # --- Administrator lockout pre-flight ---
-    recovery = legacy_by_username.get(recovery_username)
-    if recovery is None:
-        # Recovery admin may be a non-legacy admin (e.g. bootstrap/onboarding).
-        recovery = await db.users.find_one(
-            {"username": recovery_username}, SAFE_USER_PROJECTION
-        )
-    if recovery is None:
-        raise RotationError("Declared recovery_admin_username was not found")
-    if is_demo_account(recovery):
-        raise RotationError("Recovery administrator cannot be a demo account")
-    if recovery.get("role") not in ADMIN_ROLES:
-        raise RotationError("Recovery administrator must have an administrative role")
-    if not recovery.get("is_active", True):
-        raise RotationError("Recovery administrator account is not active")
-
-    recovery_entry = next((e for e in entries if e["user"]["id"] == recovery["id"]), None)
-    if recovery_entry is not None:
-        if recovery_entry["action"] == "deactivate":
-            raise RotationError("Refusing to deactivate the declared recovery administrator")
-        if recovery_entry["action"] == "skip" and not recovery_known:
-            raise RotationError(
-                "Recovery administrator is set to 'skip' but "
-                "'recovery_admin_has_known_password' was not asserted"
-            )
-        # action == "rotate": a fresh known-good password is set interactively.
-    else:
-        # Recovery admin is not being changed at all; operator must assert they
-        # already hold a working credential for it.
-        if not recovery_known:
-            raise RotationError(
-                "Recovery administrator is not in the manifest and "
-                "'recovery_admin_has_known_password' was not asserted"
-            )
-
-    # Ensure at least one active admin remains after all deactivations.
-    deactivating_admin_ids = [
-        e["user"]["id"] for e in entries
-        if e["action"] == "deactivate" and e["user"].get("role") in ADMIN_ROLES
-    ]
-    remaining_admins = await _count_active_admins(db, exclude_ids=deactivating_admin_ids)
-    if remaining_admins < 1:
+    # --- Exhaustiveness: every discovered legacy account must be listed once ---
+    missing = [a["username"] for uid, a in legacy.items() if uid not in seen_ids]
+    if missing:
         raise RotationError(
-            "Refusing: the selected deactivations would leave zero active "
-            "administrators. At least one active administrator must remain."
+            "Manifest is not exhaustive: every discovered legacy account must "
+            "appear exactly once with an explicit action. Missing: "
+            + ", ".join(sorted(missing))
         )
+
+    # --- Per-organisation recovery admins ---
+    recovery_by_org = await _validate_recovery_admins(db, manifest)
+
+    # Organisations affected by an actual change (rotate or deactivate).
+    affected_orgs = sorted({
+        e["user"].get("org_id") for e in entries if e["action"] in ("rotate", "deactivate")
+    })
+
+    # Every affected org needs exactly one validated recovery admin, and no
+    # recovery admin may be declared for an unaffected organisation.
+    for org_id in affected_orgs:
+        if org_id not in recovery_by_org:
+            raise RotationError(
+                f"Organisation {org_id!r} is affected by this run but has no "
+                f"recovery administrator declared in 'recovery_admins'"
+            )
+    for org_id in recovery_by_org:
+        if org_id not in affected_orgs:
+            raise RotationError(
+                f"recovery_admins declares organisation {org_id!r}, which is not "
+                f"affected by this run — remove it"
+            )
+
+    entries_by_id = {e["user"]["id"]: e for e in entries}
+    for org_id in affected_orgs:
+        rec = recovery_by_org[org_id]
+        rec_user, rec_known = rec["user"], rec["has_known_password"]
+        rec_entry = entries_by_id.get(rec_user["id"])
+        if rec_entry is not None:
+            if rec_entry["action"] == "deactivate":
+                raise RotationError(
+                    f"Refusing to deactivate the recovery administrator of "
+                    f"organisation {org_id!r}"
+                )
+            if rec_entry["action"] == "skip" and not rec_known:
+                raise RotationError(
+                    f"Recovery administrator of {org_id!r} is set to 'skip' but "
+                    f"'has_known_password' was not asserted"
+                )
+            # action == "rotate": a fresh known-good password is set interactively.
+        else:
+            # Recovery admin (e.g. a bootstrap/onboarding admin) is not changed;
+            # operator must assert they already hold a working credential.
+            if not rec_known:
+                raise RotationError(
+                    f"Recovery administrator of {org_id!r} is not in the manifest "
+                    f"and 'has_known_password' was not asserted"
+                )
+
+        # After deactivations, this org must retain >=1 active, non-demo admin.
+        deactivating_admin_ids = [
+            e["user"]["id"] for e in entries
+            if e["action"] == "deactivate"
+            and e["user"].get("org_id") == org_id
+            and e["user"].get("role") in ADMIN_ROLES
+        ]
+        remaining = await _count_active_admins_in_org(
+            db, org_id, exclude_ids=deactivating_admin_ids
+        )
+        if remaining < 1:
+            raise RotationError(
+                f"Refusing: the selected deactivations would leave organisation "
+                f"{org_id!r} with zero active administrators. At least one active "
+                f"administrator must remain in every affected organisation."
+            )
 
     return {
         "operator": operator,
-        "recovery_admin_id": recovery["id"],
-        "recovery_admin_username": recovery["username"],
-        "recovery_admin_has_known_password": recovery_known,
         "entries": entries,
+        "affected_orgs": affected_orgs,
+        "recovery_admins": {
+            org: {"user_id": r["user"]["id"], "username": r["user"]["username"],
+                  "has_known_password": r["has_known_password"]}
+            for org, r in recovery_by_org.items()
+        },
     }
 
 
@@ -326,7 +421,8 @@ async def run_rotation(db, manifest: dict, passwords: dict, *, apply: bool) -> d
     report = {
         "mode": "apply" if apply else "dry_run",
         "operator": operator,
-        "recovery_admin_username": plan["recovery_admin_username"],
+        "affected_orgs": plan["affected_orgs"],
+        "recovery_admins": plan["recovery_admins"],
         "results": [],
         "totals": {"rotated": 0, "deactivated": 0, "skipped": 0,
                    "failed": 0, "sessions_revoked": 0},
@@ -525,9 +621,16 @@ def apply_manifest(
     t = report["totals"]
     typer.secho(f"\nMode: {report['mode']}  Operator: {report['operator']}",
                 fg=typer.colors.GREEN if report["mode"] == "apply" else typer.colors.CYAN)
+    typer.echo(f"Affected organisations: {', '.join(report['affected_orgs']) or '(none)'}")
+    typer.echo("Recovery administrators:")
+    for org, rec in report["recovery_admins"].items():
+        typer.echo(f"  {org}: {rec['username']} ({rec['user_id']})")
+    typer.echo("\nComplete discovered legacy set and selected action:")
+    typer.echo(f"  {'username':14} {'org_id':22} {'action':11} {'outcome':9} sessions")
     for line in report["results"]:
-        typer.echo(f"  {line['username']:14} {line['action']:11} -> "
-                   f"{line['outcome']:9} (sessions revoked: {line['sessions_revoked']})")
+        typer.echo(f"  {line['username']:14} {str(line.get('org_id')):22} "
+                   f"{line['action']:11} {str(line['outcome']):9} "
+                   f"{line['sessions_revoked']}")
     typer.echo(f"Totals: rotated={t['rotated']} deactivated={t['deactivated']} "
                f"skipped={t['skipped']} failed={t['failed']} "
                f"sessions_revoked={t['sessions_revoked']}")
