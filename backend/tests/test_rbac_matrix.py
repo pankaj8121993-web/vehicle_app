@@ -3,8 +3,18 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://vehicle-central-17.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 API = f"{BASE_URL}/api"
+
+if not BASE_URL:
+    pytest.skip(
+        "REACT_APP_BACKEND_URL not set; skipping live RBAC matrix tests.",
+        allow_module_level=True,
+    )
+
+# Admin credentials for the live backend are read from the environment.
+ADMIN_USER = os.environ.get("FLEETFLOW_TEST_PRIMARY_USER")
+ADMIN_PASS = os.environ.get("FLEETFLOW_TEST_PRIMARY_PASS")
 
 
 def _enter(role):
@@ -128,11 +138,15 @@ class TestFleetManagerRBAC:
             assert r.status_code == 200, f"{p} {r.status_code}"
 
 
-# -------- Admin login (Rajguru) ---------
+# -------- Admin login (primary org admin) ---------
 class TestAdminLogin:
     @classmethod
     def setup_class(cls):
-        r = requests.post(f"{API}/auth/login", json={"username": "admin", "password": "rajguru@2026"}, timeout=30)
+        if not ADMIN_USER or not ADMIN_PASS:
+            pytest.skip("Primary admin credentials not provided "
+                        "(FLEETFLOW_TEST_PRIMARY_USER / _PASS)")
+        r = requests.post(f"{API}/auth/login",
+                          json={"username": ADMIN_USER, "password": ADMIN_PASS}, timeout=30)
         if r.status_code != 200:
             pytest.skip(f"admin login failed: {r.status_code} {r.text[:200]}")
         d = r.json()

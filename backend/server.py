@@ -1,12 +1,9 @@
 import os
 import logging
-import uuid as _uuid
-from datetime import datetime, timezone
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
-from passlib.hash import bcrypt
 
-from database import client, db, raw_db, TENANT_COLLECTIONS
+from database import client, raw_db, TENANT_COLLECTIONS
 import auth
 import routes_core
 import routes_ops
@@ -60,15 +57,10 @@ app.add_middleware(
 )
 
 
+# Organisation id used ONLY to tag pre-multi-tenancy legacy records during
+# migration (_migrate_org_ids). Startup never creates this organisation or any
+# user — the first administrator is provisioned manually via `bootstrap.py`.
 DEFAULT_ORG_ID = "org-rajguru-foods"
-
-DEFAULT_USERS = [
-    {"username": "admin", "password": "rajguru@2026", "role": "admin", "full_name": "Pankaj (Admin)"},
-    {"username": "manager", "password": "manager@2026", "role": "management", "full_name": "Manager"},
-    {"username": "dataentry1", "password": "dataentry@2026", "role": "data_entry", "full_name": "Data Entry Operator"},
-    {"username": "driver1", "password": "driver@2026", "role": "driver", "full_name": "Driver"},
-    {"username": "test", "password": "test@2026", "role": "test", "full_name": "Test User"},
-]
 
 
 @app.on_event("startup")
@@ -79,51 +71,14 @@ async def startup():
     except Exception as e:
         logger.error(f"Storage init failed (uploads will retry lazily): {e}")
 
-    await _ensure_default_org()
-
-    # Seed default users on first boot
-    existing = await raw_db.users.count_documents({})
-    if existing == 0:
-        for u in DEFAULT_USERS:
-            await raw_db.users.insert_one({
-                "id": str(_uuid.uuid4()),
-                "org_id": DEFAULT_ORG_ID,
-                "username": u["username"],
-                "password_hash": bcrypt.hash(u["password"]),
-                "role": u["role"],
-                "full_name": u["full_name"],
-                "is_active": True,
-                "is_demo": False,
-                "must_change_password": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "created_by": "system",
-            })
-        logger.info(f"Seeded {len(DEFAULT_USERS)} default users")
-
+    # NOTE: Ordinary startup must never create, reset, disable or modify any
+    # user or organisation. The first admin is created out-of-band by running
+    # `python -m bootstrap create-admin` (see docs/implementation/BOOTSTRAP.md).
     await _migrate_org_ids()
     await _ensure_indexes()
     # Ticket system migrations (Checkpoint 4) — idempotent
     await _migrate_repair_statuses()
     await _backfill_ticket_numbers()
-
-
-async def _ensure_default_org():
-    org = await raw_db.organizations.find_one({"id": DEFAULT_ORG_ID})
-    if not org:
-        await raw_db.organizations.insert_one({
-            "id": DEFAULT_ORG_ID,
-            "legal_name": "Rajguru Foods",
-            "legal_name_lc": "rajguru foods",
-            "trade_name": "Rajguru Foods",
-            "org_type": "Company",
-            "fleet_ownership": "Owned",
-            "city": "Pune", "state": "Maharashtra", "country": "India",
-            "currency": "INR", "timezone": "Asia/Kolkata", "fy_start_month": 4,
-            "compliance_docs": ["RC", "Insurance", "Fitness", "Permit", "PUC", "Road Tax"],
-            "is_demo": False, "is_default": True, "onboarding_completed": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        logger.info("Created default organisation (Rajguru Foods)")
 
 
 async def _migrate_org_ids():
