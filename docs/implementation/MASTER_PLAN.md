@@ -189,6 +189,20 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 
 # 4. Consolidated Findings and Defect Register
 
+> **SEC-001 progress (code portion complete; not the full SEC-01 lifecycle).**
+> Delivered on `feature/sec-001-secure-bootstrap`:
+> - Removed hardcoded default users/passwords and all startup user seeding from `backend/server.py`.
+> - Removed automatic creation of the hardcoded default organisation at startup (the org id is retained solely for the existing legacy migration).
+> - Added `backend/bootstrap.py`: a manual, one-time first-admin provisioning command that refuses unless the database has zero users, requires explicit inputs, has no default password, and hashes with the app's bcrypt utility. Documented in `docs/implementation/BOOTSTRAP.md`.
+> - Replaced the `username == "admin"` deletion guard with an org-scoped "last active org_admin" rule in `backend/auth.py`.
+> - Redacted committed credentials from tests, reports and `memory/test_credentials.md`; live-URL tests now read credentials from environment variables and skip when absent.
+> - Added focused unit tests in `backend/tests/test_bootstrap.py`.
+>
+> **Still outstanding for SEC-01 (separate operational work, NOT done here):**
+> rotating any already-seeded live passwords, revoking existing sessions,
+> disabling obsolete test accounts, Git-history secret cleanup, and full secret
+> scanning. The demo feature is unchanged.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1173,7 +1187,7 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 
 | Priority | ID | Task | Owner | Status |
 | --- | --- | --- | --- | --- |
-| P0 | SEC-01 | Remove default credentials; rotate passwords; revoke sessions | Backend/Security | Not started |
+| P0 | SEC-01 | Remove default credentials; rotate passwords; revoke sessions | Backend/Security | In progress — code portion done (SEC-001); rotation & revocation outstanding |
 | P0 | TEN-01 | Reject org_id/protected fields and force server ownership | Backend | Not started |
 | P0 | FILE-01 | Tenant-scope files and downloads | Backend | Not started |
 | P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Not started |

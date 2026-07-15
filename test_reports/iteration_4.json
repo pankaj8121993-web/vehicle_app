@@ -21,7 +21,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "N/A (frontend only)", "frontend": "~98% — 1 minor cosmetic issue"},
-  "test_credentials": "Passwords reset to seeded defaults after test (admin/rajguru@2026, manager/manager@2026, dataentry1/dataentry@2026, driver1/driver@2026).",
+  "test_credentials": "[REDACTED — SEC-001] Historical run used seeded default users; those default credentials have been removed. Tests now read credentials from FLEETFLOW_TEST_* env vars.",
   "seed_data_creation": "Created and DELETED: vendor 'Sharma Motors Test' (Repair, 9876543210, 27ABC1234E1Z5); tickets TKT-2026-0007 (full 7-stage workflow → closed with cost ₹5000) and TKT-2026-0008 (used for data_entry RBAC test in under_review status). Note: an existing vendor 'Sharma Motors' (without ' Test' suffix) was already present before this session and left untouched.",
   "retest_needed": false,
   "should_main_agent_self_test": true,

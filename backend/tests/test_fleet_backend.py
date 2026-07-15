@@ -1,33 +1,27 @@
 """
-Rajguru Foods Fleet Management — backend tests (post-Checkpoint 2).
+FleetFlow — backend integration tests (post-Checkpoint 2).
 Auth model: username/password → opaque session token → Authorization: Bearer <token>.
 The h(role) helper transparently logs in and caches tokens so legacy tests keep working.
 
-Default seeded users (must_change_password=True on first boot — tests handle that):
-  admin       / rajguru@2026
-  manager     / manager@2026          (role=management)
-  dataentry1  / dataentry@2026
-  driver1     / driver@2026
-  test        / test@2026
+These tests run against a live backend (REACT_APP_BACKEND_URL). Credentials are
+NOT hardcoded: supply them per environment via FLEETFLOW_TEST_<ROLE>_USER /
+FLEETFLOW_TEST_<ROLE>_PASS. When any are missing the module is skipped.
 """
 import os
 import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://vehicle-central-17.preview.emergentagent.com").rstrip("/")
+from conftest import require_live_credentials
+
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 API = f"{BASE_URL}/api"
 
-SEEDED_VEHICLE_ID = "0e572cbb-d447-4107-a08b-e7c7f409c73b"
+SEEDED_VEHICLE_ID = os.environ.get("FLEETFLOW_TEST_VEHICLE_ID", "")
 
-# Default credentials per spec — tests assume these (seeded on first boot)
-CREDS = {
-    "admin": ("admin", "rajguru@2026"),
-    "management": ("manager", "manager@2026"),
-    "data_entry": ("dataentry1", "dataentry@2026"),
-    "driver": ("driver1", "driver@2026"),
-    "test": ("test", "test@2026"),
-}
+# Credentials come from the environment; the module skips if they are absent.
+CREDS = require_live_credentials()
+# Rotation targets are fictional, test-only values (not real credentials).
 NEW_PASSWORDS = {
     "admin": "Admin@Test1",
     "management": "Mgmt@Test1",

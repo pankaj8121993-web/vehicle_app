@@ -1,41 +1,49 @@
 """
-Pytest conftest for Rajguru Fleet backend tests.
+Pytest configuration shared by the FleetFlow backend test suite.
 
-Session-scoped teardown resets all seeded users back to their default
-passwords listed in `/app/memory/test_credentials.md` so manual UI logins
-keep working after test runs.
+The legacy session teardown that logged in as the seeded default users and
+reset their passwords has been removed: SEC-001 removed startup user seeding,
+so there are no fixed default credentials to restore. Live-URL integration
+tests now read their credentials from environment variables (see
+``live_credentials`` below) and skip when those are not provided.
 """
 import os
+
 import pytest
-import requests
-
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://vehicle-central-17.preview.emergentagent.com").rstrip("/")
-API = f"{BASE_URL}/api"
-
-ROTATIONS = {
-    "admin":       ("admin",      "rajguru@2026",    "Admin@Test1"),
-    "manager":     ("manager",    "manager@2026",    "Mgmt@Test1"),
-    "dataentry1":  ("dataentry1", "dataentry@2026",  "Data@Test1"),
-    "driver1":     ("driver1",    "driver@2026",     "Driver@Test1"),
-    "test":        ("test",       "test@2026",       "Test@Test1"),
-}
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _restore_default_passwords():
-    yield
-    # Post-test teardown: revert to original seeded passwords
-    for _, (username, original, rotated) in ROTATIONS.items():
-        try:
-            r = requests.post(f"{API}/auth/login",
-                              json={"username": username, "password": rotated},
-                              timeout=10)
-            if r.status_code != 200:
-                continue  # Already at original
-            tok = r.json()["token"]
-            requests.post(f"{API}/auth/change-password",
-                          headers={"Authorization": f"Bearer {tok}"},
-                          json={"current_password": rotated, "new_password": original},
-                          timeout=10)
-        except Exception:
-            pass  # Best-effort teardown; never fail the run
+# Integration test roles and the environment variables that supply their
+# credentials. No credentials are hardcoded; supply them per environment.
+LIVE_CRED_ROLES = ("admin", "management", "data_entry", "driver", "test")
+
+
+def _read_live_credentials():
+    """Return (creds_by_role, missing_roles) from FLEETFLOW_TEST_* env vars."""
+    creds = {}
+    missing = []
+    for role in LIVE_CRED_ROLES:
+        user = os.environ.get(f"FLEETFLOW_TEST_{role.upper()}_USER")
+        password = os.environ.get(f"FLEETFLOW_TEST_{role.upper()}_PASS")
+        if not user or not password:
+            missing.append(role)
+        else:
+            creds[role] = (user, password)
+    return creds, missing
+
+
+def require_live_credentials():
+    """Return creds dict, or skip the whole module with a clear reason."""
+    creds, missing = _read_live_credentials()
+    if missing:
+        pytest.skip(
+            "Live integration credentials not provided. Set "
+            "FLEETFLOW_TEST_<ROLE>_USER / _PASS for roles: "
+            + ", ".join(missing),
+            allow_module_level=True,
+        )
+    return creds
+
+
+@pytest.fixture(scope="session")
+def live_credentials():
+    return require_live_credentials()

@@ -1,20 +1,36 @@
 """FleetFlow multi-tenant / expense / demo / onboarding backend tests.
 
-Focused on the FleetFlow SaaS conversion. Uses default seeded passwords per
-/app/memory/test_credentials.md (do NOT run the full pytest suite, which
-rotates passwords).
+Focused on the FleetFlow SaaS conversion. Runs against a live backend
+(REACT_APP_BACKEND_URL). Credentials are read from the environment and the
+module is skipped when they are missing:
+
+  FLEETFLOW_TEST_PRIMARY_USER / FLEETFLOW_TEST_PRIMARY_PASS   (primary org admin)
+  FLEETFLOW_TEST_SECONDARY_USER / FLEETFLOW_TEST_SECONDARY_PASS (2nd org, optional)
 """
 import os
 import time
-import uuid
 import pytest
 import requests
 
-BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://vehicle-central-17.preview.emergentagent.com").rstrip("/")
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
 API = f"{BASE_URL}/api"
 
-RAJGURU_ADMIN = ("admin", "rajguru@2026")
-ACME_ADMIN = ("raviacme", "acme@12345")
+_PRIMARY_USER = os.environ.get("FLEETFLOW_TEST_PRIMARY_USER")
+_PRIMARY_PASS = os.environ.get("FLEETFLOW_TEST_PRIMARY_PASS")
+if not BASE_URL or not _PRIMARY_USER or not _PRIMARY_PASS:
+    pytest.skip(
+        "Live backend URL / primary admin credentials not provided "
+        "(set REACT_APP_BACKEND_URL, FLEETFLOW_TEST_PRIMARY_USER, "
+        "FLEETFLOW_TEST_PRIMARY_PASS).",
+        allow_module_level=True,
+    )
+
+PRIMARY_ADMIN = (_PRIMARY_USER, _PRIMARY_PASS)
+# Second tenant is optional; its fixture skips gracefully if login fails.
+SECONDARY_ADMIN = (
+    os.environ.get("FLEETFLOW_TEST_SECONDARY_USER", ""),
+    os.environ.get("FLEETFLOW_TEST_SECONDARY_PASS", ""),
+)
 
 
 def _login(username, password):
@@ -36,16 +52,18 @@ def _vehicles(token):
 
 @pytest.fixture(scope="session")
 def rajguru_token():
-    r = _login(*RAJGURU_ADMIN)
-    assert r.status_code == 200, f"rajguru admin login failed: {r.status_code} {r.text}"
+    r = _login(*PRIMARY_ADMIN)
+    assert r.status_code == 200, f"primary admin login failed: {r.status_code} {r.text}"
     return r.json()["token"]
 
 
 @pytest.fixture(scope="session")
 def acme_token():
-    r = _login(*ACME_ADMIN)
+    if not SECONDARY_ADMIN[0] or not SECONDARY_ADMIN[1]:
+        pytest.skip("Secondary tenant credentials not provided; skip cross-tenant tests")
+    r = _login(*SECONDARY_ADMIN)
     if r.status_code != 200:
-        pytest.skip(f"Acme login failed ({r.status_code}); skip cross-tenant tests")
+        pytest.skip(f"Secondary tenant login failed ({r.status_code}); skip cross-tenant tests")
     return r.json()["token"]
 
 

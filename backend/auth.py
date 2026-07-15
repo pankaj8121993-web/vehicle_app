@@ -174,6 +174,22 @@ def require_role(*roles):
     return dep
 
 
+async def is_last_active_org_admin(users, uid, target) -> bool:
+    """True if deleting `target` (id == uid) would remove an organisation's last
+    active org_admin.
+
+    `users` must be the organisation-scoped users collection, so the count is
+    naturally limited to the caller's organisation. Only role ``org_admin`` is
+    protected; other roles (and inactive admins) are never blocked here.
+    """
+    if target.get("role") != "org_admin" or not target.get("is_active", True):
+        return False
+    other_admins = await users.count_documents(
+        {"role": "org_admin", "is_active": True, "id": {"$ne": uid}}
+    )
+    return other_admins == 0
+
+
 # ---------- Auth endpoints ----------
 
 async def create_session(user_id: str) -> str:
@@ -358,8 +374,13 @@ async def delete_user(uid: str, user=Depends(require_role("admin"))):
     target = await db.users.find_one({"id": uid})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    if target.get("username") == "admin":
-        raise HTTPException(status_code=400, detail="Cannot delete the primary admin account")
+    # Never let an organisation delete its last active org_admin. db.users is
+    # already scoped to the caller's organisation, so the count is org-local.
+    if await is_last_active_org_admin(db.users, uid, target):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete the last active organisation administrator",
+        )
     await db.user_sessions.update_many({"user_id": uid}, {"$set": {"revoked": True}})
     await db.users.delete_one({"id": uid})
     return {"ok": True}
