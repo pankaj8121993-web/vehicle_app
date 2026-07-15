@@ -203,6 +203,23 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 > disabling obsolete test accounts, Git-history secret cleanup, and full secret
 > scanning. The demo feature is unchanged.
 
+> **SEC-002 progress (tooling complete; production execution still pending).**
+> Delivered on `feature/sec-002-credential-rotation`:
+> - Added `backend/rotate_legacy_credentials.py`: an auditable, dry-run-by-default
+>   management command that rotates or deactivates ONLY the legacy
+>   `created_by:"system"` accounts and revokes their sessions, driven by a
+>   reviewed no-password **exhaustive** manifest. It hashes with the app bcrypt,
+>   sets `must_change_password`, enforces **per-organisation** administrator-lockout
+>   protection (recovery admin declared by exact `user_id`, validated to belong to
+>   each affected organisation; an admin in another org can never satisfy it),
+>   excludes demo accounts with multiple markers, and writes non-secret
+>   `security_audit` records.
+> - Added `docs/implementation/CREDENTIAL_ROTATION.md` (backup/verify/apply/restart/
+>   rollback runbook) and focused tests in `backend/tests/test_rotate_legacy_credentials.py`.
+> - **NOT done:** the actual production rotation/session-revocation run (requires a
+>   maintenance window, verified backup, operator manifest and backend restart),
+>   Git-history cleanup, and full secret scanning. No production data was touched.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1187,7 +1204,7 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 
 | Priority | ID | Task | Owner | Status |
 | --- | --- | --- | --- | --- |
-| P0 | SEC-01 | Remove default credentials; rotate passwords; revoke sessions | Backend/Security | In progress — code portion done (SEC-001); rotation & revocation outstanding |
+| P0 | SEC-01 | Remove default credentials; rotate passwords; revoke sessions | Backend/Security | In progress — SEC-001 code done; SEC-002 rotation/revocation tooling done; production rotation run still pending |
 | P0 | TEN-01 | Reject org_id/protected fields and force server ownership | Backend | Not started |
 | P0 | FILE-01 | Tenant-scope files and downloads | Backend | Not started |
 | P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Not started |
