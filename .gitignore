@@ -97,3 +97,32 @@ frontend/node_modules/.cache/default-development/13.pack
 .env.*
 *.env
 frontend/node_modules/.cache/default-development/14.pack
+
+# ---- SEC-003: secret hygiene ---------------------------------------------
+# Secret-scanner reports (never commit scan output).
+gitleaks.sarif
+gitleaks-report.*
+*.gitleaks.json
+# Database dumps / backups (may contain password hashes and PII).
+*.bson
+*.archive
+*.dump
+dump/
+/backups/
+# Operational manifests for credential rotation (SEC-002). These reference
+# user ids / org ids and are per-run operational artefacts; keep them out of
+# the repo. (They never contain passwords.)
+rotation-manifest*.json
+*.rotation-manifest.json
+# Additional key / secret material.
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+secrets/
+*.secret
+# Tooling that may be placed at the repo root by mistake (auth tokens, CLIs).
+/.config/
+/.local/

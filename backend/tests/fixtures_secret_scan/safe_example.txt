@@ -1,0 +1,6 @@
+# Safe fixture for the secret-scanner self-test.
+# Contains only placeholders and instructions — NO real secrets.
+DATABASE_URL=mongodb://<user>:<password>@<host>:27017/<db>
+API_KEY=<your-api-key-here>
+AUTHORIZATION_HEADER="Bearer <token>"
+note: rotate credentials via the documented runbook; never commit real values.
