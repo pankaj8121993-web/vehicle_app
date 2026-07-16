@@ -1,0 +1,38 @@
+# FleetFlow secret-scanning configuration (SEC-003)
+#
+# Extends gitleaks' built-in ruleset. The allowlist below is deliberately
+# narrow and each entry is justified. Do NOT add broad allowlists — prefer
+# fixing/removing the secret. This config is used by CI (.github/workflows/
+# secret-scan.yml) and the local scanner (scripts/scan-secrets.sh).
+title = "FleetFlow gitleaks config"
+
+[extend]
+# Keep the full upstream ruleset (API keys, tokens, private keys, etc.).
+useDefault = true
+
+[allowlist]
+description = "Narrowly justified allowlist — documentation placeholders and intentional scanner self-test fixtures only."
+
+# Paths (regex, matched against the file path) that must not be scanned.
+#
+# NOTE: `.env` files are deliberately NOT allowlisted. Local `.env` files are
+# kept out of scans by the .gitignore + git-based file selection (the working-
+# tree scan uses `git ls-files -co --exclude-standard`, which excludes ignored
+# files). A `.env` that is tracked or force-added therefore IS still scanned by
+# CI, staged, history and working-tree scans.
+paths = [
+  # Intentional dummy-secret fixtures used by the scanner self-test. These hold
+  # deliberately fake secrets so the detector can be verified. The self-test
+  # scans them WITHOUT this config, so detection is still proven.
+  '''backend/tests/fixtures_secret_scan/.*''',
+]
+
+# Regexes matched against the candidate secret value. Only clearly-marked
+# documentation placeholders are allowlisted here.
+regexes = [
+  # Placeholder tokens used in testing/how-to docs (e.g. auth_testing.md):
+  #   Authorization: Bearer YOUR_SESSION_TOKEN
+  '''YOUR_[A-Z0-9_]*TOKEN''',
+  '''<your-[a-z0-9-]*>''',
+  '''<token>''',
+]

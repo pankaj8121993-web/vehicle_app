@@ -220,6 +220,23 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 >   maintenance window, verified backup, operator manifest and backend restart),
 >   Git-history cleanup, and full secret scanning. No production data was touched.
 
+> **SEC-003 progress (secret scanning in place; history rewrite prepared, not executed).**
+> Delivered on `feature/sec-003-secret-scanning`:
+> - Added automated secret scanning with **gitleaks pinned to v8.30.1** (checksum-verified):
+>   CI workflow `.github/workflows/secret-scan.yml` (push + PR, third-party actions
+>   pinned by SHA) and a local `scripts/scan-secrets.sh` helper, governed by a narrow,
+>   justified `.gitleaks.toml` allowlist.
+> - Added a deterministic self-test (`backend/tests/test_secret_scanning.py` +
+>   `backend/tests/fixtures_secret_scan/`) proving safe fixtures pass and a dummy
+>   secret is detected, and that the tracked tree scans clean.
+> - Hardened `.gitignore` for env files, DB dumps/backups, rotation manifests and key material.
+> - Added `docs/implementation/SECRET_SCANNING.md`: detection, response, rotation linkage,
+>   a redacted historical inventory, and a **prepared** Git-history cleanup procedure.
+> - **Inventory (redacted):** the tracked tree scans clean; the legacy default-password
+>   category still exists in pre-SEC-001 history and requires a future, approved history
+>   rewrite (contributor-coordinated force-push) — **not executed** in SEC-003.
+> - Contributes to OPS-001 (secret scanning clean); AUTH-001 secret-scan evidence.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
