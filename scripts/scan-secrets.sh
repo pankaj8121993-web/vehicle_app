@@ -62,6 +62,33 @@ ensure_gitleaks() {
   rm -rf "$tmp"
 }
 
+# Scan the working tree WITHOUT git history, over exactly the files that are
+# candidates for commit: all tracked files plus untracked files that are not
+# ignored by git. Ordinary ignored local files (e.g. a developer's own `.env`,
+# caches, dumps) are excluded because they cannot be committed — but a tracked
+# or force-added `.env` IS included and therefore scanned. The file set is
+# copied into a temporary directory (preserving paths) which is always removed,
+# even on failure, via a trap.
+scan_working_tree() {
+  echo "Scanning working tree (tracked + non-ignored untracked; no history) ..."
+  local tmp scan rc
+  tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+  scan="$tmp/scan"
+  mkdir -p "$scan"
+  # -c tracked, -o untracked, --exclude-standard honours .gitignore/exclude.
+  # NUL-delimited to survive spaces/newlines in paths. Never includes .git.
+  while IFS= read -r -d '' f; do
+    mkdir -p "$scan/$(dirname "$f")"
+    cp -- "$REPO_ROOT/$f" "$scan/$f"
+  done < <(cd "$REPO_ROOT" && git ls-files -co --exclude-standard -z)
+  rc=0
+  "$BIN" dir "$scan" --config "$REPO_ROOT/.gitleaks.toml" \
+    --redact --no-banner --verbose || rc=$?
+  return "$rc"
+}
+
 main() {
   local mode="${1:-}"
   ensure_gitleaks
@@ -73,8 +100,7 @@ main() {
       "$BIN" git --staged "${common[@]}" .
       ;;
     --tree)
-      echo "Scanning working tree (no history) ..."
-      "$BIN" dir "${common[@]}" .
+      scan_working_tree
       ;;
     ""|--all)
       echo "Scanning git history and tree ..."

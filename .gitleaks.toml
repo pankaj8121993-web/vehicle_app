@@ -11,15 +11,16 @@ title = "FleetFlow gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Narrowly justified allowlist — documentation placeholders, gitignored local env files, and intentional scanner self-test fixtures."
+description = "Narrowly justified allowlist — documentation placeholders and intentional scanner self-test fixtures only."
 
 # Paths (regex, matched against the file path) that must not be scanned.
+#
+# NOTE: `.env` files are deliberately NOT allowlisted. Local `.env` files are
+# kept out of scans by the .gitignore + git-based file selection (the working-
+# tree scan uses `git ls-files -co --exclude-standard`, which excludes ignored
+# files). A `.env` that is tracked or force-added therefore IS still scanned by
+# CI, staged, history and working-tree scans.
 paths = [
-  # Local environment files are gitignored and never committed; real secrets
-  # live here only on a developer/operator machine. The .gitignore prevents
-  # committing them; the scanner should not flag the local copy.
-  '''(^|/)\.env$''',
-  '''(^|/)\.env\..*''',
   # Intentional dummy-secret fixtures used by the scanner self-test. These hold
   # deliberately fake secrets so the detector can be verified. The self-test
   # scans them WITHOUT this config, so detection is still proven.
