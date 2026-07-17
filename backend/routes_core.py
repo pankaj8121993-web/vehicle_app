@@ -1,4 +1,5 @@
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File, Response
 from database import db
@@ -6,7 +7,10 @@ from auth import require_user, require_role, require_module
 from models import VehicleCreate, DriverCreate, DocumentCreate
 from helpers import make_crud, enrich, gather_expenses
 from tenant_policy import reject_protected_fields
+import file_policy
 from storage import put_object, get_object, APP_NAME
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["core"])
 
@@ -430,50 +434,117 @@ make_crud(router, "documents", "documents", DocumentCreate, date_field="expiry_d
 
 
 # ---------- File upload / download ----------
-MIME_TYPES = {
-    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-    "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf",
-    "csv": "text/csv", "txt": "text/plain",
-}
+# FILE-01: type/'filename'/size policy lives in file_policy.py. Nothing here may
+# trust the client's filename or Content-Type.
+
+
+async def _read_upload_limited(file: UploadFile) -> bytes:
+    """Read an upload, refusing oversized bodies while streaming.
+
+    The pre-FILE-01 code did ``await file.read()`` and checked the length
+    afterwards, so a multi-gigabyte upload was fully buffered before being
+    rejected. Reading in chunks and stopping one byte past the limit bounds the
+    memory an unauthenticated-size request can cost.
+    """
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(file_policy.UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > file_policy.MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large (max {file_policy.MAX_UPLOAD_BYTES // (1024 * 1024)}MB).",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...), user=Depends(require_user)):
-    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
-    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
-    path = f"{APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4()}.{ext}"
-    data = await file.read()
-    if len(data) > 15 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 15MB)")
+    org_id = user.get("org_id")
+    if not org_id:
+        # Fail closed: without an organisation there is no owner to file this
+        # under, and an unowned file record is exactly the pre-FILE-01 defect.
+        raise HTTPException(status_code=403, detail="No organisation context")
+
+    data = await _read_upload_limited(file)
+    try:
+        ext, content_type, digest = file_policy.validate_upload(file.filename, data)
+    except file_policy.FileRejected as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Storage name is server-generated and organisation-namespaced; no part of
+    # the client's filename reaches the path.
+    path = f"{APP_NAME}/uploads/{file_policy.storage_object_name(org_id, ext)}"
     try:
         result = put_object(path, data, content_type)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Storage upload failed: {e}")
+        logger.error("Storage upload failed for org %s: %s", org_id, e)
+        raise HTTPException(status_code=502, detail="Storage upload failed")
+
     file_id = str(uuid.uuid4())
+    safe_name = file_policy.sanitize_filename(file.filename)
+    # org_id is stamped by TenantCollection from session context, not set here.
     await db.files.insert_one({
         "id": file_id,
         "storage_path": result["path"],
-        "original_filename": file.filename,
-        "content_type": content_type,
-        "size": result.get("size", len(data)),
+        "original_filename": safe_name,
+        "content_type": content_type,      # derived from bytes, never the client
+        "size": len(data),
+        "sha256": digest,
         "is_deleted": False,
         "uploaded_by": user["user_id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    return {"file_id": file_id, "original_filename": file.filename}
+    return {"file_id": file_id, "original_filename": safe_name}
+
+
+def _file_response(record, data):
+    """Build a download response that cannot be turned into active content."""
+    content_type = record.get("content_type", "application/octet-stream")
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": file_policy.content_disposition(
+                content_type, record.get("original_filename", "file")
+            ),
+            # Without nosniff a browser may ignore the declared type and execute
+            # an uploaded file as HTML/JS on this origin.
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@router.get("/files/{file_id}/metadata")
+async def file_metadata(file_id: str, user=Depends(require_user)):
+    """Non-content metadata. Org-scoped: another tenant's id 404s."""
+    record = await db.files.find_one(
+        {"id": file_id, "is_deleted": False},
+        {"_id": 0, "storage_path": 0},   # storage path is internal
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    return record
 
 
 @router.get("/files/{file_id}")
 async def download_file(file_id: str, user=Depends(require_user)):
+    # db.files is tenant-scoped (FILE-01), so this filter carries the session's
+    # org_id implicitly. A file belonging to another organisation simply does not
+    # match, and the caller gets the same 404 as a non-existent id — no
+    # existence disclosure.
     record = await db.files.find_one({"id": file_id, "is_deleted": False}, {"_id": 0})
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
     try:
-        data, content_type = get_object(record["storage_path"])
+        data, _storage_content_type = get_object(record["storage_path"])
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Storage download failed: {e}")
-    return Response(
-        content=data,
-        media_type=record.get("content_type", content_type),
-        headers={"Content-Disposition": f'inline; filename="{record.get("original_filename", "file")}"'},
-    )
+        logger.error("Storage download failed for file %s: %s", file_id, e)
+        raise HTTPException(status_code=502, detail="Storage download failed")
+    return _file_response(record, data)

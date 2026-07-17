@@ -270,6 +270,33 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 >   (WF-01), file isolation (FILE-01), action-level permissions (AUTHZ-01), the full
 >   cross-tenant HTTP matrix (TEN-TEST), branch scoping and optimistic locking.
 
+> **FILE-01 progress (repository work complete; PR open).**
+> Delivered on `feature/file-01-tenant-file-security`:
+> - **Fixed a P0 cross-tenant file-disclosure defect:** `files` was absent from
+>   `TENANT_COLLECTIONS`, so file records carried no `org_id` and
+>   `GET /api/files/{file_id}` matched on id alone. Any authenticated user of any
+>   organisation could download any other organisation's file — RC books, insurance
+>   documents, Aadhaar scans, accident photos — given only a file id, and ids are
+>   returned in ordinary API responses.
+> - Also fixed: Content-Disposition header injection and stored XSS (unsanitised
+>   filename + client-declared content type + `inline` disposition, no `nosniff`);
+>   traversal-shaped storage paths; no file-signature validation; unrestricted file
+>   types; size limit applied only after buffering the whole body; no integrity hash.
+> - Added `backend/file_policy.py`: type allowlist, magic-byte detection,
+>   filename sanitisation, server-generated org-namespaced storage names, safe
+>   Content-Disposition, SHA-256 integrity.
+> - Downloads force `attachment` for everything except images, with `nosniff`,
+>   a restrictive CSP and `no-store`.
+> - **Migration:** files are excluded from the blanket `DEFAULT_ORG_ID` backfill,
+>   which would have handed every organisation's files to the default org.
+>   `_migrate_file_org_ids()` derives the real owner from each file's uploader;
+>   unresolvable files are quarantined fail-closed. Not run against production.
+> - Added `docs/implementation/FILE_SECURITY.md` and 76 tests
+>   (`backend/tests/test_file_security.py`). Full suite: 248 passed, 3 skipped.
+> - **NOT done here:** malware scanning (no infrastructure), short-lived signed URLs
+>   (single app-wide storage key), linked-record permissions (AUTHZ-01), branch
+>   scope, orphaned-object reaping.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1256,7 +1283,7 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 | --- | --- | --- | --- | --- |
 | P0 | SEC-01 | Remove default credentials; rotate passwords; revoke sessions | Backend/Security | **OPEN P0 BLOCKER.** SEC-001 code done; SEC-002 tooling done; SEC-003 scanning done. SEC-004 (production rotation) is BLOCKED: OPERATOR-LED PRODUCTION ACTIVITY — no production operator environment is available. SEC-005 (history rewrite) BLOCKED BY SEC-004. |
 | P0 | TEN-01 | Reject org_id/protected fields and force server ownership | Backend | Repository work complete on `feature/ten-01-tenant-ownership` (PR open) — canonical protected-field policy, forced server-derived ownership, fail-closed DB guard, 106 tests. Fixed a live cross-tenant record-transfer defect. |
-| P0 | FILE-01 | Tenant-scope files and downloads | Backend | Not started |
+| P0 | FILE-01 | Tenant-scope files and downloads | Backend | Repository work complete on `feature/file-01-tenant-file-security` (PR open) — `files` tenant-scoped, per-uploader ownership migration, type/signature allowlist, safe download headers, 76 tests. Fixed a live cross-tenant file-disclosure defect. Exceptions: no malware scanning, no signed URLs, no linked-record ACL (AUTHZ-01). |
 | P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Not started |
 | P0 | AUTHZ-01 | Action-level permission engine and endpoint inventory | Backend | Not started |
 | P0 | FASTAG-01 | Disable simulated sync in live organisations | Backend | Not started |

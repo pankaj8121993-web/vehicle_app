@@ -94,22 +94,78 @@ async def startup():
     # user or organisation. The first admin is created out-of-band by running
     # `python -m bootstrap create-admin` (see docs/implementation/BOOTSTRAP.md).
     await _migrate_org_ids()
+    await _migrate_file_org_ids()
     await _ensure_indexes()
     # Ticket system migrations (Checkpoint 4) — idempotent
     await _migrate_repair_statuses()
     await _backfill_ticket_numbers()
 
 
+# FILE-01: files are excluded from the blanket default-org backfill below.
+# A file's owner is knowable from its uploader, so assigning every pre-FILE-01
+# file to DEFAULT_ORG_ID would misfile other organisations' documents into the
+# default organisation — a data-integrity fault and a cross-tenant disclosure.
+# _migrate_file_org_ids() derives the real owner instead.
+DEFAULT_ORG_BACKFILL_COLLECTIONS = TENANT_COLLECTIONS - {"files"}
+
+# Files whose uploader cannot be resolved are parked here rather than guessed at.
+# No session ever carries this org_id, so such files fail closed (404) until an
+# operator reassigns them.
+UNRESOLVED_FILE_ORG_ID = "org-unresolved-quarantine"
+
+
 async def _migrate_org_ids():
     """Assign every legacy record (pre multi-tenancy) to the default organisation."""
     total = 0
-    for coll in TENANT_COLLECTIONS:
+    for coll in DEFAULT_ORG_BACKFILL_COLLECTIONS:
         res = await raw_db[coll].update_many(
             {"org_id": {"$exists": False}}, {"$set": {"org_id": DEFAULT_ORG_ID}}
         )
         total += res.modified_count
     if total:
         logger.info(f"Multi-tenancy migration: tagged {total} legacy records with default org_id")
+
+
+async def _migrate_file_org_ids():
+    """FILE-01: give every pre-existing file record its real owning organisation.
+
+    Derived from the uploading user, which is the only trustworthy signal on a
+    legacy record. Idempotent: only touches files that have no org_id yet.
+    """
+    missing = await raw_db.files.count_documents({"org_id": {"$exists": False}})
+    if not missing:
+        return
+
+    # uploaded_by -> org_id, resolved in one pass rather than per file.
+    owners = {}
+    async for u in raw_db.users.find({}, {"_id": 0, "id": 1, "org_id": 1}):
+        if u.get("org_id"):
+            owners[u["id"]] = u["org_id"]
+
+    resolved = 0
+    quarantined = 0
+    async for f in raw_db.files.find(
+        {"org_id": {"$exists": False}}, {"_id": 0, "id": 1, "uploaded_by": 1}
+    ):
+        org_id = owners.get(f.get("uploaded_by"))
+        if not org_id:
+            org_id = UNRESOLVED_FILE_ORG_ID
+            quarantined += 1
+        else:
+            resolved += 1
+        await raw_db.files.update_one({"id": f["id"]}, {"$set": {"org_id": org_id}})
+
+    logger.info(
+        "FILE-01 migration: assigned owning organisation to %d file(s) from their uploader",
+        resolved,
+    )
+    if quarantined:
+        logger.warning(
+            "FILE-01 migration: %d file(s) have no resolvable uploader and were "
+            "quarantined as '%s'. They are unreachable until an operator "
+            "reassigns them; this is deliberate (fail closed).",
+            quarantined, UNRESOLVED_FILE_ORG_ID,
+        )
 
 
 async def _ensure_indexes():
