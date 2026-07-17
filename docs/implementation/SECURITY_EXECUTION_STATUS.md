@@ -22,8 +22,8 @@ runbook before resuming any workstream.
 | SEC-004 | Production legacy credential rotation | **BLOCKED: OPERATOR-LED PRODUCTION ACTIVITY** | **No** |
 | SEC-005 | Git-history sensitive-data removal | **BLOCKED BY SEC-004: OPERATOR-LED DESTRUCTIVE ACTIVITY** | **No** |
 | TEN-01 | Tenant ownership / mass-assignment | **Merged** (PR #4, `d9ffc09`) | N/A |
-| FILE-01 | Tenant-scoped file security | In progress — PR open | N/A |
-| AUTH-01 | Secure session lifecycle | Not started | N/A |
+| FILE-01 | Tenant-scoped file security | **Merged** (PR #5, `ea489f9`) | N/A |
+| AUTH-01 | Secure session lifecycle | In progress — PR open | N/A |
 | AUTHZ-01 | Action-level permission engine | Not started | N/A |
 | FASTAG-01 | Demo-only simulation protection | Not started | N/A |
 | WF-01 | Protected workflows | Not started | N/A |
@@ -206,8 +206,9 @@ and optimistic locking prepared but not issued/enforced.
 
 ## FILE-01 — Tenant-scoped file security
 
-- **Status:** Repository work complete; PR open against `develop`.
-- **Branch:** `feature/file-01-tenant-file-security`.
+- **Status:** **Merged into `develop`.**
+- **Branch:** `feature/file-01-tenant-file-security` (deleted after merge).
+- **PR:** #5. **Merge commit:** `ea489f9`. **CI:** gitleaks pass.
 - **Implementation doc:** `docs/implementation/FILE_SECURITY.md`.
 - **Production impact:** None. No production data accessed.
 
@@ -246,6 +247,49 @@ files (AUTHZ-01); no branch scope; orphaned storage objects not reaped.
 
 ---
 
+## AUTH-01 — Secure authentication and session lifecycle
+
+- **Status:** Repository work complete; PR open against `develop`.
+- **Branch:** `feature/auth-01-secure-sessions`.
+- **Implementation doc:** `docs/implementation/AUTHENTICATION.md`.
+- **Production impact:** None. No production data accessed.
+
+**Defects found and fixed (P0):** session tokens were stored **in plaintext**, so
+any database dump, backup or injection yielded live replayable sessions; the token
+was returned in the login body and kept in `localStorage`, making one XSS a
+persistent account takeover; expiry slid forward on every use with **no absolute
+cap**, so a stolen token lived indefinitely; tokens were never rotated (session
+fixation, stale privilege); `reset_password` flipped the DB flag without evicting
+the in-memory cache, leaving reset accounts reachable; no login throttling; and
+`allow_credentials=True` with `allow_origins=["*"]`.
+
+**Fix:** sessions identified by SHA-256 hash (never the token); HttpOnly cookie +
+double-submit CSRF; independent idle (12h) and absolute (7d) clocks, the latter
+never extended by sliding refresh; rotation on login and password change; one
+revocation path that also evicts the cache; per-username **and** per-IP login
+throttling with a constant-time, non-enumerating error; TTL indexes; CORS
+credentials only with an explicit allowlist; frontend moved off `localStorage`
+tokens with back/forward-cache and focus revalidation.
+
+**Migration note:** pre-hashing sessions are **revoked, not rehashed** — hashing
+an already-exposed value would keep it working. Existing users sign in once;
+that is the intended cost. Bearer tokens remain accepted so newly-issued tokens
+keep working during the transition.
+
+**Tests/checks:** 304 passed, 3 skipped (56 new). Ruff clean on touched files.
+Gitleaks clean. Frontend builds. **Live smoke test** confirmed cookie auth, CSRF
+blocking forged writes (403) while allowing legitimate ones, and immediate
+revoke-all (401) — and caught two real bugs unit tests missed (naive/aware
+datetime comparison 500-ing every cookie session; an invalid Mongo projection).
+
+**Remaining limitations (explicitly NOT complete):** no self-service password-reset
+flow (no mail transport configured — open SEC-CLOSEOUT item); organisation
+suspension does not exist as a concept, so its revocation hook is unused; bearer
+fallback and the login `token` field remain for migration; no frontend test
+harness; idle/absolute TTLs not per-deployment configurable.
+
+---
+
 ## Environment / tooling notes
 
 - GitHub CLI is authenticated as `pankaj8121993-web` with scopes
@@ -261,7 +305,7 @@ files (AUTHZ-01); no branch scope; orphaned storage objects not reaped.
 
 ## Next target
 
-**AUTH-01 — Secure authentication and session lifecycle**, once FILE-01 is merged.
+**AUTHZ-01 — Action-level permission engine**, once AUTH-01 is merged.
 
 SEC-004 and SEC-005 stay open as operator-led P0 release blockers and do not gate
 the remaining repository-side workstreams (FILE-01, AUTH-01, AUTHZ-01, FASTAG-01,

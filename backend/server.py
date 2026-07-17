@@ -67,10 +67,26 @@ async def _tenant_violation_handler(request: Request, exc: TenantViolation):
     return JSONResponse(status_code=400, content={"detail": "Invalid request"})
 
 
+# AUTH-01: sessions now ride in a cookie, so CORS correctness is a security
+# control rather than a convenience. `allow_credentials=True` with
+# `allow_origins=["*"]` is rejected outright by browsers for credentialed
+# requests, and echoing an arbitrary origin back with credentials would let any
+# site read authenticated responses. So: an explicit allowlist, and credentials
+# are only enabled when one is configured.
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+_cors_allowlisted = bool(_cors_origins) and "*" not in _cors_origins
+
+if not _cors_allowlisted:
+    logger.warning(
+        "CORS_ORIGINS is unset or wildcard — credentialed cross-origin requests "
+        "are disabled. Set CORS_ORIGINS to an explicit comma-separated allowlist "
+        "for cookie authentication to work across origins."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=_cors_allowlisted,
+    allow_origins=_cors_origins if _cors_allowlisted else ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -95,6 +111,7 @@ async def startup():
     # `python -m bootstrap create-admin` (see docs/implementation/BOOTSTRAP.md).
     await _migrate_org_ids()
     await _migrate_file_org_ids()
+    await _migrate_plaintext_sessions()
     await _ensure_indexes()
     # Ticket system migrations (Checkpoint 4) — idempotent
     await _migrate_repair_statuses()
@@ -168,13 +185,52 @@ async def _migrate_file_org_ids():
         )
 
 
+async def _migrate_plaintext_sessions():
+    """AUTH-01: retire every session that predates token hashing.
+
+    Old rows hold the token in plaintext under "token". They cannot be migrated
+    in place — hashing the stored value would keep a token that has already been
+    exposed in the database working, which is the whole point of the change.
+
+    So they are revoked instead. Existing users are asked to log in once; that is
+    the intended, safe cost of the migration and is far better than carrying
+    known-exposed tokens forward. Idempotent.
+    """
+    stale = await raw_db.user_sessions.count_documents({"token": {"$exists": True}})
+    if not stale:
+        return
+    await raw_db.user_sessions.update_many(
+        {"token": {"$exists": True}},
+        {
+            "$set": {"revoked": True, "revoked_reason": "auth01_plaintext_migration"},
+            "$unset": {"token": ""},   # do not keep the plaintext value around
+        },
+    )
+    logger.warning(
+        "AUTH-01 migration: revoked %d pre-hashing session(s) and removed their "
+        "plaintext tokens. Affected users must sign in again — deliberate.",
+        stale,
+    )
+
+
 async def _ensure_indexes():
     try:
         for coll in TENANT_COLLECTIONS:
             await raw_db[coll].create_index("org_id")
         await raw_db.users.create_index("username", unique=True)
-        await raw_db.user_sessions.create_index("token")
         await raw_db.organizations.create_index("id", unique=True)
+        # AUTH-01: sessions are looked up by token hash; the raw "token" index
+        # is gone along with the plaintext field.
+        await raw_db.user_sessions.create_index("token_hash")
+        await raw_db.user_sessions.create_index("user_id")
+        # TTL: Mongo deletes expired sessions itself, so a revoked or lapsed
+        # session cannot linger as a replayable row. Requires a BSON date, which
+        # is why absolute_expires_at is stored as a datetime, not an ISO string.
+        await raw_db.user_sessions.create_index("absolute_expires_at", expireAfterSeconds=0)
+        # Failed-login records are only needed for the throttle window.
+        await raw_db.login_attempts.create_index("at", expireAfterSeconds=3600)
+        await raw_db.login_attempts.create_index([("username", 1), ("at", -1)])
+        await raw_db.login_attempts.create_index([("ip", 1), ("at", -1)])
     except Exception as e:
         logger.warning(f"Index creation issue: {e}")
 

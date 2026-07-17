@@ -1,14 +1,25 @@
 """
-Authentication — username + password, opaque session tokens in MongoDB,
-in-memory cache, sliding 7-day expiry. Replaces Phase 1 role-picker.
+Authentication — username + password, opaque session tokens.
+
+AUTH-01 reworked the session lifecycle. Sessions are now identified by a
+*hash* of the token (so a database dump cannot be replayed), delivered in an
+HttpOnly cookie (so XSS cannot read them), bounded by both an idle and an
+absolute clock, rotated on login and privilege change, and protected by
+double-submit CSRF on cookie-authenticated writes.
+
+Bearer tokens in the Authorization header remain accepted so that clients
+holding one keep working through the migration; see AUTHENTICATION.md.
 """
-import secrets
+import logging
 import uuid
-from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Header
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from passlib.hash import bcrypt
 from database import db, raw_db, current_org_id
 from models import UserCreate, UserUpdate, PasswordChange, LoginRequest
+import session_security as ss
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 
@@ -90,10 +101,12 @@ def require_module(module):
         return user
     return dep
 
-SESSION_TTL_DAYS = 7
-SLIDING_THROTTLE_MINUTES = 60
-
-# In-memory cache: token -> (user_dict, cached_at)
+# In-memory cache: token_hash -> (user_dict, session_dict, cached_at).
+#
+# Keyed by hash, never by the raw token, so process memory holds no replayable
+# credential either. The TTL is deliberately short: it is a database-load
+# optimisation, not a revocation boundary. Revocation paths evict explicitly,
+# and a backend restart still clears everything (see CREDENTIAL_ROTATION.md).
 _session_cache = {}
 _CACHE_TTL_SECONDS = 60
 
@@ -102,56 +115,143 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-def _gen_token():
-    return secrets.token_urlsafe(32)
-
-
 def _gen_temp_password():
-    return secrets.token_urlsafe(6)[:8]
+    return ss.generate_token()[:12]
+
+
+def _evict_cached_user(user_id: str):
+    """Drop every cached session for one user. Called by revocation paths."""
+    for key in [k for k, (u, _s, _t) in _session_cache.items() if u.get("id") == user_id]:
+        _session_cache.pop(key, None)
+
+
+async def revoke_user_sessions(user_id: str, *, reason: str):
+    """Revoke every session for a user and evict them from the cache.
+
+    AUTH-01 requires immediate revocation after a password change or reset, a
+    role change, deactivation, or organisation suspension. Callers pass a reason
+    purely so the audit line says why.
+    """
+    res = await db.user_sessions.update_many(
+        {"user_id": user_id, "revoked": False},
+        {"$set": {"revoked": True, "revoked_at": _now(), "revoked_reason": reason}},
+    )
+    _evict_cached_user(user_id)
+    if res.modified_count:
+        logger.info(
+            "Revoked %d session(s) for user %s (%s)", res.modified_count, user_id, reason
+        )
+    return res.modified_count
+
+
+async def create_session(user_id: str, *, request: Request = None) -> tuple:
+    """Create a session. Returns ``(token, csrf_token)``.
+
+    Only the *hashes* are persisted. The raw values are returned once, to be set
+    as cookies, and are unrecoverable afterwards.
+    """
+    token = ss.generate_token()
+    csrf = ss.generate_csrf_token()
+    created = _now()
+    await db.user_sessions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "token_hash": ss.hash_token(token),
+        "csrf_hash": ss.hash_token(csrf),
+        "created_at": created,
+        "last_used_at": created,
+        # Real datetimes: the TTL index needs a BSON date, and both expiry
+        # clocks compare datetimes rather than ISO strings.
+        "absolute_expires_at": ss.absolute_expiry(created),
+        "revoked": False,
+        "user_agent": (request.headers.get("user-agent") if request else None),
+        "ip": (request.client.host if request and request.client else None),
+    })
+    return token, csrf
 
 
 async def _resolve_session(token: str):
-    """Validate token via cache or DB. Returns user dict (without password_hash) or None."""
-    cached = _session_cache.get(token)
+    """Validate a raw token. Returns (user, session) or (None, None)."""
+    if not token:
+        return None, None
+    token_hash = ss.hash_token(token)
+
+    cached = _session_cache.get(token_hash)
     if cached:
-        user, cached_at = cached
+        user, session, cached_at = cached
         if (_now() - cached_at).total_seconds() < _CACHE_TTL_SECONDS:
-            return user
+            # Re-check expiry on every hit: the cache must never extend a
+            # session's life past either clock.
+            if ss.is_expired(session):
+                _session_cache.pop(token_hash, None)
+                return None, None
+            return user, session
+        _session_cache.pop(token_hash, None)
+
     session = await db.user_sessions.find_one(
-        {"token": token, "revoked": False}, {"_id": 0}
+        {"token_hash": token_hash, "revoked": False}, {"_id": 0}
     )
-    if not session:
-        return None
-    if session["expires_at"] < _now().isoformat():
-        return None
+    if not session or ss.is_expired(session):
+        return None, None
     user = await db.users.find_one(
         {"id": session["user_id"], "is_active": True}, {"_id": 0, "password_hash": 0}
     )
     if not user:
-        return None
-    # Sliding expiry — only update if last_used_at > throttle ago
-    last = session.get("last_used_at") or session["created_at"]
-    try:
-        last_dt = datetime.fromisoformat(last) if isinstance(last, str) else last
-    except ValueError:
-        last_dt = _now()
-    if (_now() - last_dt).total_seconds() > SLIDING_THROTTLE_MINUTES * 60:
-        new_exp = (_now() + timedelta(days=SESSION_TTL_DAYS)).isoformat()
+        return None, None
+
+    # Sliding refresh moves only the idle clock. absolute_expires_at is never
+    # extended, so a stolen token cannot be kept alive by using it.
+    if ss.should_refresh(session.get("last_used_at")):
         await db.user_sessions.update_one(
-            {"id": session["id"]},
-            {"$set": {"last_used_at": _now().isoformat(), "expires_at": new_exp}},
+            {"id": session["id"]}, {"$set": {"last_used_at": _now()}}
         )
-    _session_cache[token] = (user, _now())
-    return user
+
+    user = dict(user)
+    _session_cache[token_hash] = (user, session, _now())
+    return user, session
 
 
-async def require_user(authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
+def _extract_token(request: Request, authorization: str):
+    """Return (token, via) where via is "cookie" or "bearer".
+
+    Cookie first: it is the AUTH-01 mechanism. The Authorization header stays
+    supported so clients holding a bearer token keep working through the
+    migration — and because a bearer token cannot be sent cross-site by a
+    browser without script, only the cookie path needs CSRF.
+    """
+    cookie_token = request.cookies.get(ss.SESSION_COOKIE) if request else None
+    if cookie_token:
+        return cookie_token, "cookie"
+    if authorization and authorization.startswith("Bearer "):
+        return authorization.replace("Bearer ", "").strip(), "bearer"
+    return None, None
+
+
+def _enforce_csrf(request: Request, session: dict, via: str):
+    """Double-submit CSRF check for cookie-authenticated state changes.
+
+    Only cookie auth is vulnerable: the browser attaches the cookie
+    automatically on a cross-site request, whereas an Authorization header
+    requires script that same-origin policy already prevents.
+    """
+    if via != "cookie" or request.method in ss.SAFE_METHODS:
+        return
+    provided = request.headers.get(ss.CSRF_HEADER)
+    expected_hash = session.get("csrf_hash")
+    if not provided or not expected_hash:
+        raise HTTPException(status_code=403, detail="CSRF token missing")
+    if not ss.csrf_valid(expected_hash, ss.hash_token(provided)):
+        raise HTTPException(status_code=403, detail="CSRF token invalid")
+
+
+async def require_user(request: Request, authorization: str = Header(None)):
+    token, via = _extract_token(request, authorization)
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    token = authorization.replace("Bearer ", "").strip()
-    user = await _resolve_session(token)
+    user, session = await _resolve_session(token)
     if not user:
         raise HTTPException(status_code=401, detail="Session expired or invalid")
+    _enforce_csrf(request, session, via)
     # Standardize internal fields + apply effective role tier & org context
     user = dict(user)
     user.setdefault("user_id", user["id"])
@@ -192,21 +292,6 @@ async def is_last_active_org_admin(users, uid, target) -> bool:
 
 # ---------- Auth endpoints ----------
 
-async def create_session(user_id: str) -> str:
-    token = _gen_token()
-    expires = (_now() + timedelta(days=SESSION_TTL_DAYS)).isoformat()
-    await db.user_sessions.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user_id,
-        "token": token,
-        "created_at": _now().isoformat(),
-        "last_used_at": _now().isoformat(),
-        "expires_at": expires,
-        "revoked": False,
-    })
-    return token
-
-
 async def _org_name(org_id):
     if not org_id:
         return None
@@ -214,47 +299,7 @@ async def _org_name(org_id):
     return (org.get("trade_name") or org.get("legal_name")) if org else None
 
 
-@router.post("/auth/login")
-async def login(payload: LoginRequest):
-    username = payload.username.lower().strip()
-    user = await raw_db.users.find_one({"username": username, "is_active": True})
-    if not user or not bcrypt.verify(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    token = await create_session(user["id"])
-    return {
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "username": user["username"],
-            "full_name": user["full_name"],
-            "role": user["role"],
-            "must_change_password": user.get("must_change_password", False),
-            "org_id": user.get("org_id"),
-            "org_name": await _org_name(user.get("org_id")),
-            "is_demo": bool(user.get("is_demo")),
-            "modules": allowed_modules(user["role"]),
-        },
-    }
-
-
-@router.post("/auth/logout")
-async def logout(authorization: str = Header(None)):
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.replace("Bearer ", "").strip()
-        await db.user_sessions.update_one({"token": token}, {"$set": {"revoked": True}})
-        _session_cache.pop(token, None)
-    return {"ok": True}
-
-
-@router.get("/auth/me")
-async def me(authorization: str = Header(None)):
-    # Allows even must_change_password users to read their own profile
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    token = authorization.replace("Bearer ", "").strip()
-    user = await _resolve_session(token)
-    if not user:
-        raise HTTPException(status_code=401, detail="Session expired or invalid")
+async def _user_payload(user):
     return {
         "id": user["id"],
         "username": user["username"],
@@ -268,16 +313,195 @@ async def me(authorization: str = Header(None)):
     }
 
 
-@router.post("/auth/change-password")
-async def change_password(payload: PasswordChange, authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    token = authorization.replace("Bearer ", "").strip()
-    session = await db.user_sessions.find_one({"token": token, "revoked": False}, {"_id": 0})
+def set_session_cookies(response: Response, token: str, csrf: str):
+    """Attach the session and CSRF cookies. The single place that does this."""
+    response.set_cookie(ss.SESSION_COOKIE, token, **ss.cookie_params())
+    response.set_cookie(ss.CSRF_COOKIE, csrf, **ss.csrf_cookie_params())
+    # Auth responses carry identity; keep them out of shared and back/forward
+    # caches so a logged-out browser cannot show them again.
+    response.headers["Cache-Control"] = "no-store, private"
+
+
+def clear_session_cookies(response: Response):
+    params = ss.cookie_params()
+    response.delete_cookie(ss.SESSION_COOKIE, path=params["path"], samesite=params["samesite"], secure=params["secure"])
+    response.delete_cookie(ss.CSRF_COOKIE, path=params["path"], samesite=params["samesite"], secure=params["secure"])
+    response.headers["Cache-Control"] = "no-store, private"
+
+
+async def _record_failed_login(username: str, ip: str):
+    await raw_db.login_attempts.insert_one({
+        "username": (username or "").lower().strip(),
+        "ip": ip or "unknown",
+        "at": _now(),
+    })
+
+
+async def _is_throttled(username: str, ip: str) -> bool:
+    """True if this username OR this IP has too many recent failures.
+
+    Counted independently so neither a targeted attack on one account nor a
+    spray from one address can run unbounded. Uses the same generic error as a
+    wrong password, so throttling never confirms an account exists.
+    """
+    since = _now() - ss.THROTTLE_WINDOW
+    uname = (username or "").lower().strip()
+    by_user = await raw_db.login_attempts.count_documents(
+        {"username": uname, "at": {"$gte": since}}
+    )
+    if by_user >= ss.MAX_FAILED_ATTEMPTS:
+        return True
+    by_ip = await raw_db.login_attempts.count_documents(
+        {"ip": ip or "unknown", "at": {"$gte": since}}
+    )
+    return by_ip >= ss.MAX_FAILED_ATTEMPTS
+
+
+@router.post("/auth/login")
+async def login(payload: LoginRequest, request: Request, response: Response):
+    username = payload.username.lower().strip()
+    ip = request.client.host if request.client else "unknown"
+
+    if await _is_throttled(username, ip):
+        # Deliberately the same shape as a bad password: a distinct "locked"
+        # message would confirm the account exists.
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Please try again later.",
+        )
+
+    user = await raw_db.users.find_one({"username": username, "is_active": True})
+    # Always run a bcrypt verify, even when the user does not exist, so the
+    # response time does not reveal which usernames are real.
+    stored_hash = user["password_hash"] if user else bcrypt.hash("invalid-placeholder")
+    password_ok = bcrypt.verify(payload.password, stored_hash)
+    if not user or not password_ok:
+        await _record_failed_login(username, ip)
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    # Session fixation: any pre-login session for this user is discarded, so a
+    # token an attacker planted before authentication cannot survive it.
+    await revoke_user_sessions(user["id"], reason="login_rotation")
+    token, csrf = await create_session(user["id"], request=request)
+    await raw_db.login_attempts.delete_many({"username": username})
+
+    set_session_cookies(response, token, csrf)
+    return {
+        # Returned for backward compatibility with clients still reading a
+        # bearer token. The cookie above is the mechanism AUTH-01 relies on;
+        # this field goes away once no client needs it (see AUTHENTICATION.md).
+        "token": token,
+        "csrf_token": csrf,
+        "user": await _user_payload(user),
+    }
+
+
+@router.post("/auth/logout")
+async def logout(request: Request, response: Response, authorization: str = Header(None)):
+    token, _via = _extract_token(request, authorization)
+    if token:
+        token_hash = ss.hash_token(token)
+        await db.user_sessions.update_one(
+            {"token_hash": token_hash},
+            {"$set": {"revoked": True, "revoked_at": _now(), "revoked_reason": "logout"}},
+        )
+        _session_cache.pop(token_hash, None)
+    clear_session_cookies(response)
+    return {"ok": True}
+
+
+# ---------- Session / device management ----------
+
+@router.get("/auth/sessions")
+async def list_sessions(request: Request, user=Depends(require_user), authorization: str = Header(None)):
+    """The caller's own active sessions. Never exposes tokens or hashes."""
+    token, _via = _extract_token(request, authorization)
+    current_hash = ss.hash_token(token) if token else None
+    out = []
+    # Inclusion projection: csrf_hash and any future secret are excluded by
+    # simply not being listed. (Mongo rejects mixing inclusion and exclusion.)
+    # token_hash is fetched only to mark the current session and is not returned.
+    async for s in db.user_sessions.find(
+        {"user_id": user["user_id"], "revoked": False},
+        {"_id": 0, "id": 1, "token_hash": 1, "created_at": 1,
+         "last_used_at": 1, "absolute_expires_at": 1, "user_agent": 1, "ip": 1},
+    ):
+        if ss.is_expired(s):
+            continue
+        out.append({
+            "id": s["id"],
+            "created_at": s.get("created_at"),
+            "last_used_at": s.get("last_used_at"),
+            "expires_at": s.get("absolute_expires_at"),
+            "user_agent": s.get("user_agent"),
+            "ip": s.get("ip"),
+            "current": s.get("token_hash") == current_hash,
+        })
+    out.sort(key=lambda r: r.get("last_used_at") or r.get("created_at"), reverse=True)
+    return out
+
+
+@router.delete("/auth/sessions/{session_id}")
+async def revoke_session(session_id: str, user=Depends(require_user)):
+    """Revoke one of the caller's own sessions.
+
+    Scoped by user_id, so a session id belonging to someone else simply does not
+    match and returns 404 — no existence disclosure.
+    """
+    session = await db.user_sessions.find_one(
+        {"id": session_id, "user_id": user["user_id"]}, {"_id": 0, "token_hash": 1}
+    )
     if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await db.user_sessions.update_one(
+        {"id": session_id},
+        {"$set": {"revoked": True, "revoked_at": _now(), "revoked_reason": "user_revoked"}},
+    )
+    _session_cache.pop(session.get("token_hash"), None)
+    return {"ok": True}
+
+
+@router.post("/auth/sessions/revoke-all")
+async def revoke_all_sessions(response: Response, user=Depends(require_user)):
+    """Revoke every session for the caller, including the current one."""
+    count = await revoke_user_sessions(user["user_id"], reason="user_revoked_all")
+    clear_session_cookies(response)
+    return {"ok": True, "revoked": count}
+
+
+@router.get("/auth/me")
+async def me(request: Request, response: Response, authorization: str = Header(None)):
+    # Allows even must_change_password users to read their own profile
+    token, _via = _extract_token(request, authorization)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user, _session = await _resolve_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+    # AUTH-01: /auth/me is what the frontend revalidates against on route change
+    # and tab focus. It must never be served from the back/forward cache, or a
+    # logged-out user would see a stale authenticated shell.
+    response.headers["Cache-Control"] = "no-store, private"
+    return await _user_payload(user)
+
+
+@router.post("/auth/change-password")
+async def change_password(
+    payload: PasswordChange,
+    request: Request,
+    response: Response,
+    authorization: str = Header(None),
+):
+    token, via = _extract_token(request, authorization)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user, session = await _resolve_session(token)
+    if not user:
         raise HTTPException(status_code=401, detail="Session expired")
-    user = await db.users.find_one({"id": session["user_id"]})
-    if not user or not bcrypt.verify(payload.current_password, user["password_hash"]):
+    _enforce_csrf(request, session, via)
+
+    full_user = await db.users.find_one({"id": user["id"]})
+    if not full_user or not bcrypt.verify(payload.current_password, full_user["password_hash"]):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(payload.new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
@@ -286,8 +510,13 @@ async def change_password(payload: PasswordChange, authorization: str = Header(N
         {"$set": {"password_hash": bcrypt.hash(payload.new_password),
                   "must_change_password": False}},
     )
-    _session_cache.pop(token, None)
-    return {"ok": True}
+    # Every existing session dies, including this one — a password change must
+    # evict anyone who captured a token before it. The caller is then re-issued a
+    # fresh session so they are not logged out of the tab they are typing in.
+    await revoke_user_sessions(user["id"], reason="password_change")
+    new_token, new_csrf = await create_session(user["id"], request=request)
+    set_session_cookies(response, new_token, new_csrf)
+    return {"ok": True, "token": new_token, "csrf_token": new_csrf}
 
 
 # ---------- User Management (admin only) ----------
@@ -339,11 +568,10 @@ async def update_user(uid: str, payload: UserUpdate, user=Depends(require_role("
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     if "role" in updates or "is_active" in updates:
-        await db.user_sessions.update_many({"user_id": uid}, {"$set": {"revoked": True}})
-        for k in list(_session_cache.keys()):
-            cached_user, _ = _session_cache[k]
-            if cached_user["id"] == uid:
-                _session_cache.pop(k, None)
+        # A privilege change must not leave a token minted under the old role
+        # (or under an active account) working.
+        reason = "role_change" if "role" in updates else "activation_change"
+        await revoke_user_sessions(uid, reason=reason)
     return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
 
 
@@ -361,7 +589,10 @@ async def reset_password(uid: str, user=Depends(require_role("admin"))):
         {"id": uid},
         {"$set": {"password_hash": bcrypt.hash(temp), "must_change_password": True}},
     )
-    await db.user_sessions.update_many({"user_id": uid}, {"$set": {"revoked": True}})
+    # Revoke through the shared path so the in-memory cache is evicted too —
+    # the old code only flipped the database flag, leaving a reset user's
+    # sessions live for up to the cache TTL.
+    await revoke_user_sessions(uid, reason="password_reset")
     return {"temporary_password": temp, "username": target["username"]}
 
 
