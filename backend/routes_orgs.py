@@ -3,10 +3,10 @@ import re
 import uuid
 import secrets
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from passlib.hash import bcrypt
 from database import db, raw_db, current_org_id
-from auth import require_user, require_role, create_session, ROLES, allowed_modules
+from auth import require_user, require_role, create_session, set_session_cookies, ROLES, allowed_modules
 from models import OrgRegister
 from tenant_policy import reject_protected_fields
 import demo_seed
@@ -28,7 +28,7 @@ def _now():
 # ---------- Onboarding ----------
 
 @router.post("/onboarding/register")
-async def register_org(payload: OrgRegister):
+async def register_org(payload: OrgRegister, request: Request, response: Response):
     org = payload.org or {}
     admin = payload.admin or {}
 
@@ -127,9 +127,11 @@ async def register_org(payload: OrgRegister):
         "created_at": _now().isoformat(),
     })
 
-    token = await create_session(user_id)
+    token, csrf = await create_session(user_id, request=request)
+    set_session_cookies(response, token, csrf)
     return {
         "token": token,
+        "csrf_token": csrf,
         "user": {
             "id": user_id, "username": username, "full_name": full_name,
             "role": "org_admin", "must_change_password": False,
@@ -269,7 +271,7 @@ async def demo_roles():
 
 
 @router.post("/demo/enter")
-async def enter_demo(payload: dict = Body(...)):
+async def enter_demo(request: Request, response: Response, payload: dict = Body(...)):
     role = payload.get("role")
     if role not in DEMO_ROLES:
         raise HTTPException(status_code=400, detail="Invalid demo role")
@@ -277,9 +279,11 @@ async def enter_demo(payload: dict = Body(...)):
     duser = await raw_db.users.find_one({"username": f"demo_{role}", "is_demo": True})
     if not duser:
         raise HTTPException(status_code=500, detail="Demo user not available")
-    token = await create_session(duser["id"])
+    token, csrf = await create_session(duser["id"], request=request)
+    set_session_cookies(response, token, csrf)
     return {
         "token": token,
+        "csrf_token": csrf,
         "user": {
             "id": duser["id"], "username": duser["username"], "full_name": duser["full_name"],
             "role": duser["role"], "must_change_password": False,

@@ -297,6 +297,35 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 >   (single app-wide storage key), linked-record permissions (AUTHZ-01), branch
 >   scope, orphaned-object reaping.
 
+> **AUTH-01 progress (repository work complete; PR open).**
+> Delivered on `feature/auth-01-secure-sessions`:
+> - **Fixed P0 session defects:** tokens were stored in the database **in plaintext**
+>   (any dump/backup/injection yielded live sessions); the token was returned in the
+>   login body and held in `localStorage` (one XSS = persistent account takeover);
+>   sliding expiry had **no absolute cap** (a stolen token lived forever if used);
+>   tokens were never rotated (session fixation, stale privilege after role change);
+>   `reset_password` did not evict the session cache; no login throttling;
+>   `allow_credentials=True` with wildcard CORS origins.
+> - Sessions are now identified by SHA-256 hash, delivered in an HttpOnly cookie,
+>   protected by double-submit CSRF on cookie-authenticated writes, bounded by
+>   independent idle (12h) and absolute (7d) clocks, and rotated on login and
+>   password change. One revocation path flips the flag *and* evicts the cache.
+> - Login throttling per username **and** per IP; non-enumerating errors with a
+>   bcrypt verify even for unknown users so timing does not leak.
+> - TTL indexes reap expired sessions and login attempts. CORS credentials only
+>   with an explicit allowlist.
+> - Frontend no longer stores any token; revalidates on route change, tab focus and
+>   back/forward-cache restore.
+> - **Migration:** pre-hashing sessions are revoked, **not rehashed** — hashing an
+>   already-exposed token would keep it working. Users sign in once. Bearer tokens
+>   remain accepted so newly-issued tokens keep working.
+> - Added `docs/implementation/AUTHENTICATION.md` and 56 tests. Full suite: 304
+>   passed, 3 skipped. A live smoke test verified CSRF blocks forged writes and
+>   revoke-all is immediate — and caught two real bugs unit tests missed.
+> - **NOT done here:** self-service password reset (no mail transport — open item),
+>   organisation suspension (concept does not exist), removal of the bearer
+>   fallback, frontend test harness.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1284,7 +1313,7 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 | P0 | SEC-01 | Remove default credentials; rotate passwords; revoke sessions | Backend/Security | **OPEN P0 BLOCKER.** SEC-001 code done; SEC-002 tooling done; SEC-003 scanning done. SEC-004 (production rotation) is BLOCKED: OPERATOR-LED PRODUCTION ACTIVITY — no production operator environment is available. SEC-005 (history rewrite) BLOCKED BY SEC-004. |
 | P0 | TEN-01 | Reject org_id/protected fields and force server ownership | Backend | Repository work complete on `feature/ten-01-tenant-ownership` (PR open) — canonical protected-field policy, forced server-derived ownership, fail-closed DB guard, 106 tests. Fixed a live cross-tenant record-transfer defect. |
 | P0 | FILE-01 | Tenant-scope files and downloads | Backend | Repository work complete on `feature/file-01-tenant-file-security` (PR open) — `files` tenant-scoped, per-uploader ownership migration, type/signature allowlist, safe download headers, 76 tests. Fixed a live cross-tenant file-disclosure defect. Exceptions: no malware scanning, no signed URLs, no linked-record ACL (AUTHZ-01). |
-| P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Not started |
+| P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Repository work complete on `feature/auth-01-secure-sessions` (PR open) — hashed tokens, HttpOnly cookies, double-submit CSRF, idle+absolute expiry, rotation, revoke one/all, TTL indexes, login throttling, CORS allowlist, 56 tests. Fixed plaintext session storage and unbounded sliding expiry. Exception: no self-service password reset (no mail transport). |
 | P0 | AUTHZ-01 | Action-level permission engine and endpoint inventory | Backend | Not started |
 | P0 | FASTAG-01 | Disable simulated sync in live organisations | Backend | Not started |
 | P0 | WF-01 | Protect status/approval/payment fields from generic updates | Backend | Not started |
