@@ -11,6 +11,17 @@ import os
 
 import pytest
 
+# TEN-TEST: point the whole suite at a dedicated, disposable database *before*
+# anything imports `database` (which resolves DB_NAME at import time).
+#
+# conftest is loaded before any test module, and python-dotenv does not override
+# an existing environment variable, so this wins over backend/.env. Tests
+# therefore never read or write the running application's database — previously
+# importing `database` in a test bound it to whatever DB_NAME the dev container
+# happened to have.
+TEST_DB_NAME = "fleetflow_automated_tests"
+os.environ["DB_NAME"] = TEST_DB_NAME
+
 
 # Integration test roles and the environment variables that supply their
 # credentials. No credentials are hardcoded; supply them per environment.

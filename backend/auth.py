@@ -188,12 +188,18 @@ async def _resolve_session(token: str):
             return user, session
         _session_cache.pop(token_hash, None)
 
-    session = await db.user_sessions.find_one(
+    session = await raw_db.user_sessions.find_one(
         {"token_hash": token_hash, "revoked": False}, {"_id": 0}
     )
     if not session or ss.is_expired(session):
         return None, None
-    user = await db.users.find_one(
+    # raw_db, deliberately: session resolution is inherently cross-tenant —
+    # which organisation the caller belongs to is only known *after* the user is
+    # resolved, and current_org_id is not set for this request yet. Going through
+    # the tenant-scoped `db` here would filter the lookup by whatever org context
+    # happened to be left in the ambient contextvar, which is both wrong and
+    # fragile (it only appears to work because the default is None).
+    user = await raw_db.users.find_one(
         {"id": session["user_id"], "is_active": True}, {"_id": 0, "password_hash": 0}
     )
     if not user:
@@ -202,7 +208,7 @@ async def _resolve_session(token: str):
     # Sliding refresh moves only the idle clock. absolute_expires_at is never
     # extended, so a stolen token cannot be kept alive by using it.
     if ss.should_refresh(session.get("last_used_at")):
-        await db.user_sessions.update_one(
+        await raw_db.user_sessions.update_one(
             {"id": session["id"]}, {"$set": {"last_used_at": _now()}}
         )
 
@@ -612,7 +618,10 @@ async def delete_user(uid: str, user=Depends(require_role("admin"))):
             status_code=400,
             detail="Cannot delete the last active organisation administrator",
         )
-    await db.user_sessions.update_many({"user_id": uid}, {"$set": {"revoked": True}})
+    # Through the shared path so the in-memory cache is evicted too — flipping
+    # only the database flag left a deleted user's session usable for the cache
+    # TTL (the same defect AUTH-01 fixed in reset_password).
+    await revoke_user_sessions(uid, reason="user_deleted")
     await db.users.delete_one({"id": uid})
     return {"ok": True}
 

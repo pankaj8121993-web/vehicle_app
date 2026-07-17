@@ -23,11 +23,11 @@ runbook before resuming any workstream.
 | SEC-005 | Git-history sensitive-data removal | **BLOCKED BY SEC-004: OPERATOR-LED DESTRUCTIVE ACTIVITY** | **No** |
 | TEN-01 | Tenant ownership / mass-assignment | **Merged** (PR #4, `d9ffc09`) | N/A |
 | FILE-01 | Tenant-scoped file security | **Merged** (PR #5, `ea489f9`) | N/A |
-| AUTH-01 | Secure session lifecycle | In progress — PR open | N/A |
+| AUTH-01 | Secure session lifecycle | **Merged** (PR #6, `ffd465c`) | N/A |
 | AUTHZ-01 | Action-level permission engine | Not started | N/A |
 | FASTAG-01 | Demo-only simulation protection | Not started | N/A |
 | WF-01 | Protected workflows | Not started | N/A |
-| TEN-TEST | Cross-tenant security matrix | Not started | N/A |
+| TEN-TEST | Cross-tenant security matrix | In progress — PR open | N/A |
 | SEC-CLOSEOUT | Critical security release gate | Not started | N/A |
 
 ---
@@ -249,8 +249,9 @@ files (AUTHZ-01); no branch scope; orphaned storage objects not reaped.
 
 ## AUTH-01 — Secure authentication and session lifecycle
 
-- **Status:** Repository work complete; PR open against `develop`.
-- **Branch:** `feature/auth-01-secure-sessions`.
+- **Status:** **Merged into `develop`.**
+- **Branch:** `feature/auth-01-secure-sessions` (deleted after merge).
+- **PR:** #6. **Merge commit:** `ffd465c`. **CI:** gitleaks pass.
 - **Implementation doc:** `docs/implementation/AUTHENTICATION.md`.
 - **Production impact:** None. No production data accessed.
 
@@ -290,6 +291,57 @@ harness; idle/absolute TTLs not per-deployment configurable.
 
 ---
 
+## TEN-TEST — Comprehensive cross-tenant security matrix
+
+- **Status:** Repository work complete; PR open against `develop`.
+- **Branch:** `feature/ten-test-isolation-matrix`.
+- **Implementation doc:** `docs/implementation/TENANT_TEST_MATRIX.md`.
+- **Production impact:** None. No production data accessed.
+
+**Why it ran before AUTHZ-01:** TEN-01, FILE-01 and AUTH-01 were all proven at the
+*mechanism* level (policy functions, `TenantCollection` with a fake, source-wiring
+guards). None had been exercised against real cross-tenant traffic. Building
+AUTHZ-01 and WF-01 on top of an unproven foundation is how a security programme
+ends up looking complete without being it.
+
+**What it is:** 188 tests driving real HTTP through `httpx.ASGITransport` against
+the real app, with two real organisations in a dedicated disposable database,
+authenticating by cookie + CSRF exactly as the frontend does. A `RESOURCE_REGISTRY`
+drives every case, and a guard test fails the build when a new tenant-scoped
+collection is added without isolation coverage.
+
+**Defects it found on its first run — both real, both fixed here:**
+
+1. **`auth._resolve_session` depended on ambient tenant context.** It resolved the
+   user through the tenant-scoped `db.users`, so the lookup was filtered by
+   whatever `current_org_id` happened to hold. Session resolution is inherently
+   cross-tenant — the caller's org is only known *after* the user is resolved. It
+   worked under uvicorn only because each request gets a fresh context defaulting
+   to `None`; that is luck, not design. Now resolved through `raw_db`.
+2. **`delete_user` did not evict the session cache.** It flipped `revoked`
+   directly instead of using `revoke_user_sessions()`, so a **deleted user's
+   session stayed usable for up to the 60s cache TTL** — the same defect AUTH-01
+   fixed in `reset_password`, in a path that had been missed.
+
+It also caught a vacuously-passing test of its own (`/api/calendar` returns
+`{"events": …}`, not `{"items": …}`, so an isolation assertion was checking an
+empty list); the list helper now asserts its key exists rather than defaulting.
+
+**Mutation-tested:** removing `"vehicles"` from `TENANT_COLLECTIONS` produces 4
+failures including *"A deleted B's record"*, proving the suite detects a real leak
+rather than merely passing.
+
+**Tests/checks:** 492 passed, 3 skipped (188 new). Ruff clean. Gitleaks clean.
+Live smoke re-verified after the `auth.py` fixes.
+
+**Remaining limitations:** aggregate assertions are substring-based (catch
+disclosure, not a subtler count-level leak); no background-job/notification
+coverage (neither exists in FleetFlow — not applicable rather than skipped); no
+signed-URL coverage (FILE-01 streams instead); no timing-channel analysis;
+pairwise (two-org) isolation only.
+
+---
+
 ## Environment / tooling notes
 
 - GitHub CLI is authenticated as `pankaj8121993-web` with scopes
@@ -305,7 +357,12 @@ harness; idle/absolute TTLs not per-deployment configurable.
 
 ## Next target
 
-**AUTHZ-01 — Action-level permission engine**, once AUTH-01 is merged.
+**AUTHZ-01 — Action-level permission engine**, once TEN-TEST is merged.
+
+TEN-TEST was deliberately run before AUTHZ-01: it validates the three merged
+stages against real cross-tenant traffic, so AUTHZ-01 and WF-01 build on a
+proven foundation rather than an assumed one. It found two real defects on its
+first run.
 
 SEC-004 and SEC-005 stay open as operator-led P0 release blockers and do not gate
 the remaining repository-side workstreams (FILE-01, AUTH-01, AUTHZ-01, FASTAG-01,

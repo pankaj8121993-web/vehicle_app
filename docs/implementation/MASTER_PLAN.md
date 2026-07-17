@@ -326,6 +326,31 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 >   organisation suspension (concept does not exist), removal of the bearer
 >   fallback, frontend test harness.
 
+> **TEN-TEST progress (repository work complete; PR open).**
+> Delivered on `feature/ten-test-isolation-matrix`:
+> - 188 tests driving **real HTTP against the real app with two real organisations**
+>   in a dedicated disposable database, authenticating by cookie + CSRF exactly as
+>   the frontend does. TEN-01/FILE-01/AUTH-01 had only been proven at the mechanism
+>   level (fakes, source guards); a route that forgot to use the tenant-scoped `db`
+>   would have passed all of them and still leaked.
+> - A `RESOURCE_REGISTRY` drives every case; a guard test fails the build when a new
+>   tenant-scoped collection is added without isolation coverage.
+> - Covers list/read/create-with-injected-ownership/update/delete/transfer, search,
+>   dashboard, reports, **exports**, drilldowns, calendar, compliance, files,
+>   sessions, and org/user administration. Asserts **404 not 403**, and that a real
+>   cross-tenant id and a random id return byte-identical responses.
+> - **Found two real defects, both fixed here:** `auth._resolve_session` resolved the
+>   user through the tenant-scoped `db.users`, so it depended on ambient
+>   `current_org_id` (worked under uvicorn only because the contextvar defaults to
+>   None — luck, not design); and `delete_user` flipped `revoked` directly instead of
+>   using `revoke_user_sessions()`, leaving a **deleted user's session usable for up
+>   to the 60s cache TTL**.
+> - **Mutation-tested:** removing `"vehicles"` from `TENANT_COLLECTIONS` produces 4
+>   failures including "A deleted B's record", proving the suite detects a real leak.
+> - Added `docs/implementation/TENANT_TEST_MATRIX.md`. Full suite: 492 passed, 3 skipped.
+> - **NOT done here:** background-job/notification coverage (neither exists), signed-URL
+>   coverage (FILE-01 streams instead), timing-channel analysis, N-tenant isolation.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1317,7 +1342,7 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 | P0 | AUTHZ-01 | Action-level permission engine and endpoint inventory | Backend | Not started |
 | P0 | FASTAG-01 | Disable simulated sync in live organisations | Backend | Not started |
 | P0 | WF-01 | Protect status/approval/payment fields from generic updates | Backend | Not started |
-| P1 | TEN-TEST | Automated cross-tenant test suite | QA/Security | Not started |
+| P1 | TEN-TEST | Automated cross-tenant test suite | QA/Security | Repository work complete on `feature/ten-test-isolation-matrix` (PR open) — 188 real-HTTP two-org isolation tests, registry-driven so new modules must register, mutation-tested. Found and fixed two real defects in `auth.py`. |
 | P1 | BUG-01 | Row navigation and actions | Frontend | Not started |
 | P1 | BUG-02 | Profile/onboarding performance profiling and fixes | Frontend | Not started |
 | P1 | VAL-01 | Schema-driven inline validation across forms | Frontend/Backend | Not started |
