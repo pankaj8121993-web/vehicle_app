@@ -5,6 +5,7 @@ from database import db
 from auth import require_user, require_role, require_module
 from models import VehicleCreate, DriverCreate, DocumentCreate
 from helpers import make_crud, enrich, gather_expenses
+from tenant_policy import reject_protected_fields
 from storage import put_object, get_object, APP_NAME
 
 router = APIRouter(tags=["core"])
@@ -67,7 +68,7 @@ async def create_vehicle(payload: VehicleCreate, user=Depends(require_user)):
 
 @router.put("/vehicles/{vid}")
 async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
-    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
+    reject_protected_fields(payload)
     existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -355,7 +356,7 @@ async def create_driver(payload: DriverCreate, user=Depends(require_user)):
 
 @router.put("/drivers/{did}")
 async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
-    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
+    reject_protected_fields(payload)
     existing = await db.drivers.find_one({"id": did}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Driver not found")

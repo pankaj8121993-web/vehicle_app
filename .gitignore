@@ -126,3 +126,4 @@ secrets/
 # Tooling that may be placed at the repo root by mistake (auth tokens, CLIs).
 /.config/
 /.local/
+frontend/node_modules/.cache/default-development/9.pack

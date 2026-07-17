@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
 from auth import require_user, require_role, require_module
 from models import VendorCreate
+from tenant_policy import reject_protected_fields
 
 router = APIRouter(tags=["vendors"])
 
@@ -54,7 +55,7 @@ async def create_vendor(payload: VendorCreate, user=Depends(require_user)):
 @router.put("/vendors/{vid}")
 async def update_vendor(vid: str, payload: dict = Body(...),
                         user=Depends(require_role("data_entry", "management", "admin", "test"))):
-    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
+    reject_protected_fields(payload)
     if user.get("role") == "test":
         existing = await db.vendors.find_one({"id": vid}, {"_id": 0, "is_test_data": 1})
         if not existing or not existing.get("is_test_data"):

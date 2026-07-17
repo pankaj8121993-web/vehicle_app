@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
 from auth import require_user, require_role, require_module
 from helpers import gather_expenses
+from tenant_policy import reject_protected_fields
 
 router = APIRouter(tags=["expenses"])
 
@@ -198,6 +199,7 @@ async def list_budgets(month: str = None, user=Depends(require_module("expenses"
 
 @router.post("/budgets")
 async def create_budget(payload: dict = Body(...), user=Depends(require_role("management", "admin", "data_entry"))):
+    reject_protected_fields(payload)
     category = payload.get("category")
     month = payload.get("month")
     amount = payload.get("amount")
@@ -219,6 +221,7 @@ async def create_budget(payload: dict = Body(...), user=Depends(require_role("ma
 
 @router.put("/budgets/{bid}")
 async def update_budget(bid: str, payload: dict = Body(...), user=Depends(require_role("management", "admin", "data_entry"))):
+    reject_protected_fields(payload)
     amount = payload.get("amount")
     if not isinstance(amount, (int, float)) or amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be a positive number")

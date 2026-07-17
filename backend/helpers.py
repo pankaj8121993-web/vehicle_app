@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
 from auth import require_user, require_role, MODULE_ACCESS
+from tenant_policy import reject_protected_fields
 
 
 def _check_module(user, module):
@@ -75,7 +76,7 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
 
     @router.put(f"/{path}/{{item_id}}")
     async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
-        payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
+        reject_protected_fields(payload)
         if user.get("role") == "test":
             existing = await db[coll].find_one({"id": item_id}, {"_id": 0, "is_test_data": 1})
             if not existing or not existing.get("is_test_data"):

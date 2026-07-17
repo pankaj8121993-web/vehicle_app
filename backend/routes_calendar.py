@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
 from auth import require_user, require_role, require_module
 from models import CalendarEventCreate
+from tenant_policy import reject_protected_fields
 
 router = APIRouter(tags=["calendar"])
 
@@ -255,7 +256,7 @@ async def create_event(payload: CalendarEventCreate,
 @router.put("/calendar/events/{eid}")
 async def update_event(eid: str, payload: dict = Body(...),
                         user=Depends(require_role("data_entry", "management", "admin", "test"))):
-    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
+    reject_protected_fields(payload)
     if user.get("role") == "test":
         existing = await db.calendar_events.find_one({"id": eid}, {"_id": 0, "is_test_data": 1})
         if not existing or not existing.get("is_test_data"):
