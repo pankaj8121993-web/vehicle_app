@@ -21,6 +21,11 @@ TENANT_COLLECTIONS = {
     "repairs", "greasings", "tyres", "tyre_events", "accidents",
     "fastag_transactions", "downtimes", "expenses", "vendors",
     "calendar_events", "compliance_contacts", "budgets", "branches", "users",
+    # FILE-01: "files" was previously absent, so file records carried no org_id
+    # and GET /api/files/{id} resolved by id alone — any authenticated user could
+    # download any organisation's file. Scoping it here makes every read, insert
+    # and update org-bound by default.
+    "files",
 }
 
 

@@ -21,8 +21,8 @@ runbook before resuming any workstream.
 | SEC-003 | Secret scanning + history-remediation prep | Merged | **No** (rewrite not executed) |
 | SEC-004 | Production legacy credential rotation | **BLOCKED: OPERATOR-LED PRODUCTION ACTIVITY** | **No** |
 | SEC-005 | Git-history sensitive-data removal | **BLOCKED BY SEC-004: OPERATOR-LED DESTRUCTIVE ACTIVITY** | **No** |
-| TEN-01 | Tenant ownership / mass-assignment | In progress — PR open | N/A |
-| FILE-01 | Tenant-scoped file security | Not started | N/A |
+| TEN-01 | Tenant ownership / mass-assignment | **Merged** (PR #4, `d9ffc09`) | N/A |
+| FILE-01 | Tenant-scoped file security | In progress — PR open | N/A |
 | AUTH-01 | Secure session lifecycle | Not started | N/A |
 | AUTHZ-01 | Action-level permission engine | Not started | N/A |
 | FASTAG-01 | Demo-only simulation protection | Not started | N/A |
@@ -174,8 +174,10 @@ remain live.
 
 ## TEN-01 — Tenant ownership and mass-assignment protection
 
-- **Status:** Repository work complete; PR open against `develop`.
-- **Branch:** `feature/ten-01-tenant-ownership`.
+- **Status:** **Merged into `develop`.**
+- **Branch:** `feature/ten-01-tenant-ownership` (deleted after merge).
+- **PR:** #4. **Merge commit:** `d9ffc09`. **Commit:** `578f6fa`.
+- **CI:** gitleaks pass. No review findings.
 - **Implementation doc:** `docs/implementation/TENANT_OWNERSHIP.md`.
 - **Production impact:** None. No production data accessed.
 
@@ -202,6 +204,48 @@ and optimistic locking prepared but not issued/enforced.
 
 ---
 
+## FILE-01 — Tenant-scoped file security
+
+- **Status:** Repository work complete; PR open against `develop`.
+- **Branch:** `feature/file-01-tenant-file-security`.
+- **Implementation doc:** `docs/implementation/FILE_SECURITY.md`.
+- **Production impact:** None. No production data accessed.
+
+**Defect found and fixed (P0, previously unreported):** `files` was absent from
+`TENANT_COLLECTIONS`, so file records carried no `org_id` and
+`GET /api/files/{file_id}` matched on id alone. **Any authenticated user of any
+organisation could download any other organisation's file** (RC books, insurance
+documents, Aadhaar scans, accident photos) given only a file id — and ids are
+returned in ordinary API responses. Also fixed: Content-Disposition header
+injection and stored XSS via unsanitised filenames + client-declared content type
++ `inline` disposition; traversal-shaped storage paths from
+`filename.split(".")[-1]`; no signature validation; no type restriction;
+post-read size check; no integrity hash.
+
+**Fix:** `files` is now tenant-scoped; `backend/file_policy.py` holds the type
+allowlist, magic-byte detection, filename sanitisation, server-generated
+org-namespaced storage names, safe disposition and SHA-256 hashing; downloads
+force `attachment` for non-images with `nosniff` + CSP + `no-store`; size is
+enforced while streaming.
+
+**Migration note:** files are deliberately **excluded** from the blanket
+`DEFAULT_ORG_ID` backfill — that would have handed every organisation's existing
+files to the default org. `_migrate_file_org_ids()` derives the real owner from
+each file's uploader; unresolvable files are quarantined under an org no session
+holds (fail closed) and logged for operator follow-up. Idempotent, but it is a
+data change and has **not** been run against production.
+
+**Tests/checks:** 248 passed, 3 skipped (76 new). Ruff no new findings. Gitleaks
+clean. Frontend builds. `GET /api/` 200.
+
+**Remaining limitations (explicitly NOT complete):** no malware scanning (no
+infrastructure — explicit SEC-CLOSEOUT exception); no short-lived signed URLs
+(single app-wide storage key; permission-checked streaming used instead); no
+linked-record permission model, so any member of the owning org can read its
+files (AUTHZ-01); no branch scope; orphaned storage objects not reaped.
+
+---
+
 ## Environment / tooling notes
 
 - GitHub CLI is authenticated as `pankaj8121993-web` with scopes
@@ -217,7 +261,7 @@ and optimistic locking prepared but not issued/enforced.
 
 ## Next target
 
-**FILE-01 — Tenant-scoped file security**, once TEN-01 is merged.
+**AUTH-01 — Secure authentication and session lifecycle**, once FILE-01 is merged.
 
 SEC-004 and SEC-005 stay open as operator-led P0 release blockers and do not gate
 the remaining repository-side workstreams (FILE-01, AUTH-01, AUTHZ-01, FASTAG-01,
