@@ -1,9 +1,11 @@
 import os
 import logging
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from database import client, raw_db, TENANT_COLLECTIONS
+from tenant_policy import TenantViolation
 import auth
 import routes_core
 import routes_ops
@@ -47,6 +49,23 @@ api_router.include_router(routes_search.router)
 api_router.include_router(routes_expenses.router)
 
 app.include_router(api_router)
+
+
+@app.exception_handler(TenantViolation)
+async def _tenant_violation_handler(request: Request, exc: TenantViolation):
+    """TEN-01 last-resort guard.
+
+    Routes reject protected fields before the database layer is reached, so a
+    TenantViolation means a code path tried to write across organisations. Log it
+    as an error for investigation and fail closed with an opaque response — the
+    client learns nothing about the tenancy model or the offending record.
+    """
+    logger.error(
+        "Tenant ownership violation on %s %s: %s",
+        request.method, request.url.path, exc,
+    )
+    return JSONResponse(status_code=400, content={"detail": "Invalid request"})
+
 
 app.add_middleware(
     CORSMiddleware,

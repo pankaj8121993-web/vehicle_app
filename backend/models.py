@@ -1,8 +1,38 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, model_validator
+from typing import ClassVar, Optional, List
+
+from tenant_policy import reject_protected_fields
 
 
-class OrgRegister(BaseModel):
+class TenantSafeModel(BaseModel):
+    """Base for request models: rejects server-owned fields in the request body.
+
+    TEN-01. Pydantic's default ``extra="ignore"`` meant a body containing
+    ``org_id`` was silently dropped — the write was safe, but the client was told
+    it had succeeded as sent. This validator rejects protected fields explicitly
+    (HTTP 400) so ownership injection is a visible error.
+
+    Unknown *non-protected* fields are still ignored rather than forbidden. A
+    blanket ``extra="forbid"`` would turn every harmless frontend/model drift
+    into a 422 without adding tenant safety, so it is deliberately not used;
+    protected-field rejection is the part that carries the security property.
+
+    Subclasses that legitimately own a protected field (e.g. ``UserCreate`` and
+    ``role``) declare it in ``allow_protected``. It is a ``ClassVar`` so it stays
+    policy metadata and never becomes a request field of its own.
+    """
+
+    allow_protected: ClassVar[frozenset] = frozenset()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_protected(cls, data):
+        if isinstance(data, dict):
+            reject_protected_fields(data, allow=cls.allow_protected)
+        return data
+
+
+class OrgRegister(TenantSafeModel):
     org: dict
     admin: dict
     branch: Optional[dict] = None
@@ -11,7 +41,12 @@ class OrgRegister(BaseModel):
     fleet_profile: Optional[dict] = None
 
 
-class UserCreate(BaseModel):
+class UserCreate(TenantSafeModel):
+    # The user-administration path legitimately sets role and the initial
+    # password. It is permission-checked in auth.create_user, which also pins the
+    # new user's org_id to the caller's organisation and rejects role escalation.
+    allow_protected: ClassVar[frozenset] = frozenset({"role", "password"})
+
     username: str
     password: str
     role: str
@@ -19,23 +54,32 @@ class UserCreate(BaseModel):
     is_active: Optional[bool] = True
 
 
-class UserUpdate(BaseModel):
+class UserUpdate(TenantSafeModel):
+    # Role changes are permitted here and nowhere else; auth.update_user enforces
+    # who may make them. org_id is deliberately absent — users are never moved
+    # between organisations through this endpoint.
+    allow_protected: ClassVar[frozenset] = frozenset({"role"})
+
     role: Optional[str] = None
     full_name: Optional[str] = None
     is_active: Optional[bool] = None
 
 
-class PasswordChange(BaseModel):
+class PasswordChange(TenantSafeModel):
     current_password: str
     new_password: str
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(TenantSafeModel):
+    # "password" is a protected field name everywhere else; login is the one
+    # place a caller is supposed to send one.
+    allow_protected: ClassVar[frozenset] = frozenset({"password"})
+
     username: str
     password: str
 
 
-class VehicleCreate(BaseModel):
+class VehicleCreate(TenantSafeModel):
     vehicle_number: str
     make: Optional[str] = None
     model: Optional[str] = None
@@ -60,7 +104,7 @@ class VehicleCreate(BaseModel):
     disposal_remarks: Optional[str] = None
 
 
-class DriverCreate(BaseModel):
+class DriverCreate(TenantSafeModel):
     name: str
     employee_number: Optional[str] = None
     mobile: Optional[str] = None
@@ -83,7 +127,7 @@ class DriverCreate(BaseModel):
     exit_reason: Optional[str] = None
 
 
-class DocumentCreate(BaseModel):
+class DocumentCreate(TenantSafeModel):
     vehicle_id: str
     doc_type: str
     doc_number: Optional[str] = None
@@ -93,7 +137,7 @@ class DocumentCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class TripCreate(BaseModel):
+class TripCreate(TenantSafeModel):
     date: str
     vehicle_id: str
     driver_id: Optional[str] = None
@@ -109,7 +153,7 @@ class TripCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class FuelCreate(BaseModel):
+class FuelCreate(TenantSafeModel):
     date: str
     vehicle_id: str
     driver_id: Optional[str] = None
@@ -121,7 +165,7 @@ class FuelCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class ServiceCreate(BaseModel):
+class ServiceCreate(TenantSafeModel):
     vehicle_id: str
     service_type: str
     date: str
@@ -135,7 +179,7 @@ class ServiceCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class RepairCreate(BaseModel):
+class RepairCreate(TenantSafeModel):
     vehicle_id: str
     repair_type: str  # minor | major
     issue: str
@@ -152,7 +196,7 @@ class RepairCreate(BaseModel):
     vendor_id: Optional[str] = None
 
 
-class VendorCreate(BaseModel):
+class VendorCreate(TenantSafeModel):
     name: str
     vendor_type: str  # Repair | Tyre | Showroom | Breakdown | Insurance | Fastag | Fuel | Other
     primary_contact: Optional[str] = None
@@ -166,7 +210,7 @@ class VendorCreate(BaseModel):
     is_active: Optional[bool] = True
 
 
-class TyreCreate(BaseModel):
+class TyreCreate(TenantSafeModel):
     vehicle_id: str
     tyre_number: str
     brand: Optional[str] = None
@@ -179,7 +223,7 @@ class TyreCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class TyreEventCreate(BaseModel):
+class TyreEventCreate(TenantSafeModel):
     tyre_id: str
     vehicle_id: Optional[str] = None
     event_type: str  # puncture | rotation | retreading | replacement
@@ -189,7 +233,7 @@ class TyreEventCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class AccidentCreate(BaseModel):
+class AccidentCreate(TenantSafeModel):
     vehicle_id: str
     driver_id: Optional[str] = None
     date: str
@@ -205,7 +249,7 @@ class AccidentCreate(BaseModel):
     settlement_amount: Optional[float] = 0
 
 
-class FastagTxnCreate(BaseModel):
+class FastagTxnCreate(TenantSafeModel):
     vehicle_id: str
     txn_type: str  # toll | recharge
     date: str
@@ -214,7 +258,7 @@ class FastagTxnCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class DowntimeCreate(BaseModel):
+class DowntimeCreate(TenantSafeModel):
     vehicle_id: str
     reason: str  # service | breakdown | accident | compliance | other
     start_date: str
@@ -222,7 +266,7 @@ class DowntimeCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class ExpenseCreate(BaseModel):
+class ExpenseCreate(TenantSafeModel):
     vehicle_id: str
     category: str
     date: str
@@ -231,7 +275,7 @@ class ExpenseCreate(BaseModel):
     file_id: Optional[str] = None
 
 
-class GreasingCreate(BaseModel):
+class GreasingCreate(TenantSafeModel):
     vehicle_id: str
     date: str
     odometer: Optional[float] = None
@@ -243,7 +287,7 @@ class GreasingCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class ComplianceContactCreate(BaseModel):
+class ComplianceContactCreate(TenantSafeModel):
     compliance_type: str
     contact_person_name: str
     mobile: str
@@ -253,7 +297,7 @@ class ComplianceContactCreate(BaseModel):
     is_active: Optional[bool] = True
 
 
-class CalendarEventCreate(BaseModel):
+class CalendarEventCreate(TenantSafeModel):
     title: str
     date: str
     time: Optional[str] = None

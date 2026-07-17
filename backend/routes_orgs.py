@@ -8,6 +8,7 @@ from passlib.hash import bcrypt
 from database import db, raw_db, current_org_id
 from auth import require_user, require_role, create_session, ROLES, allowed_modules
 from models import OrgRegister
+from tenant_policy import reject_protected_fields
 import demo_seed
 
 router = APIRouter(tags=["organisations"])
@@ -153,6 +154,7 @@ async def get_org(user=Depends(require_user)):
 async def update_org(payload: dict = Body(...), user=Depends(require_role("admin", "management"))):
     if user.get("is_demo"):
         raise HTTPException(status_code=403, detail="Demo users cannot change organisation settings")
+    reject_protected_fields(payload)
     allowed = {
         "trade_name", "industry", "gstin", "pan", "cin", "email", "phone", "website",
         "year_established", "employee_count", "address", "country", "state", "city",
@@ -175,6 +177,7 @@ async def list_branches(user=Depends(require_user)):
 
 @router.post("/branches")
 async def create_branch(payload: dict = Body(...), user=Depends(require_role("admin", "management"))):
+    reject_protected_fields(payload)
     name = (payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Branch name is required")
@@ -196,6 +199,7 @@ async def create_branch(payload: dict = Body(...), user=Depends(require_role("ad
 
 @router.put("/branches/{bid}")
 async def update_branch(bid: str, payload: dict = Body(...), user=Depends(require_role("admin", "management"))):
+    reject_protected_fields(payload)
     updates = {k: v for k, v in payload.items() if k in ("name", "code", "address", "contact_person", "phone", "email")}
     res = await db.branches.update_one({"id": bid}, {"$set": updates})
     if res.matched_count == 0:

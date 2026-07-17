@@ -4,6 +4,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 
+from tenant_policy import TenantViolation, ownership_fields_in_update
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -45,24 +47,53 @@ class TenantCollection:
     async def count_documents(self, flt=None, **k):
         return await self._c.count_documents(self._scope(flt), **k)
 
-    async def insert_one(self, doc, **k):
+    def _force_ownership(self, doc):
+        """Stamp the session's org_id onto a document being inserted.
+
+        TEN-01: this used to be ``doc.setdefault("org_id", org)``, which let a
+        client-supplied ``org_id`` win and file a new record under another
+        organisation. Ownership is now *forced* from session context, and a
+        conflicting value is a hard failure rather than a silent overwrite —
+        nothing in the application legitimately inserts a foreign org_id, so if
+        one appears the caller is confused or hostile and must not proceed.
+        """
         org = current_org_id.get()
-        if self._tenant and org:
-            doc.setdefault("org_id", org)
-        return await self._c.insert_one(doc, **k)
+        if not (self._tenant and org):
+            return doc
+        supplied = doc.get("org_id")
+        if supplied is not None and supplied != org:
+            raise TenantViolation(
+                "Refusing to insert a record owned by a different organisation."
+            )
+        doc["org_id"] = org
+        return doc
+
+    def _guard_update(self, update):
+        """Block any update that would write a tenant-ownership field.
+
+        ``_scope`` constrains which documents an update *matches*, but it cannot
+        stop ``{"$set": {"org_id": ...}}`` from moving a matched record out of
+        the tenant. This is the fail-closed guard for that gap.
+        """
+        offending = ownership_fields_in_update(update)
+        if offending:
+            raise TenantViolation(
+                "Refusing an update that would change record ownership "
+                f"({', '.join(offending)})."
+            )
+        return update
+
+    async def insert_one(self, doc, **k):
+        return await self._c.insert_one(self._force_ownership(doc), **k)
 
     async def insert_many(self, docs, **k):
-        org = current_org_id.get()
-        if self._tenant and org:
-            for d in docs:
-                d.setdefault("org_id", org)
-        return await self._c.insert_many(docs, **k)
+        return await self._c.insert_many([self._force_ownership(d) for d in docs], **k)
 
     async def update_one(self, flt, update, **k):
-        return await self._c.update_one(self._scope(flt), update, **k)
+        return await self._c.update_one(self._scope(flt), self._guard_update(update), **k)
 
     async def update_many(self, flt, update, **k):
-        return await self._c.update_many(self._scope(flt), update, **k)
+        return await self._c.update_many(self._scope(flt), self._guard_update(update), **k)
 
     async def delete_one(self, flt, **k):
         return await self._c.delete_one(self._scope(flt), **k)

@@ -237,6 +237,39 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 >   rewrite (contributor-coordinated force-push) — **not executed** in SEC-003.
 > - Contributes to OPS-001 (secret scanning clean); AUTH-001 secret-scan evidence.
 
+> **SEC-004 — BLOCKED: OPERATOR-LED PRODUCTION ACTIVITY (open P0 release blocker).**
+> Rotating the live legacy `created_by:"system"` credentials and revoking their
+> sessions requires a genuine production operator environment. The Emergent preview
+> container is **not** one: it reaches only a local `mongod` (`test_database`) inside
+> itself. SEC-004 will be executed separately by an operator using the merged
+> `CREDENTIAL_ROTATION.md` runbook. **Not executed. No production data accessed.**
+
+> **SEC-005 — BLOCKED BY SEC-004: OPERATOR-LED DESTRUCTIVE ACTIVITY (open P0 release blocker).**
+> The Git-history rewrite is preconditioned on SEC-004 succeeding (old passwords
+> invalid, old sessions revoked). Rewriting history while those values are still
+> live would destroy the record of what needs rotating. **Not executed.**
+
+> **TEN-01 progress (repository work complete; PR open).**
+> Delivered on `feature/ten-01-tenant-ownership`:
+> - **Fixed a P0 cross-tenant write defect:** six generic update endpoints filtered
+>   request bodies with hand-written denylists that all omitted `org_id`, while
+>   `TenantCollection` scoped only the update *filter*, not the update *document*.
+>   An authenticated user could transfer their own record into another organisation
+>   via `PUT /api/<resource>/{id}` with `{"org_id": "<victim-org>"}`. `insert_one`
+>   also used `setdefault("org_id", ...)`, letting a client-supplied owner win.
+> - Added `backend/tenant_policy.py`: one canonical protected-field policy replacing
+>   the scattered denylists, covering ownership, identity, audit, security, isolation
+>   marker, branch, version, workflow and derived fields.
+> - Ownership is now **forced** from authenticated session context on insert, and any
+>   update writing an ownership field is refused fail-closed (`TenantViolation`).
+> - Protected fields are **rejected** (HTTP 400 naming the field, never its value)
+>   rather than silently stripped. Legitimate paths keep explicit, declared exceptions.
+> - Added `docs/implementation/TENANT_OWNERSHIP.md` and 106 tests
+>   (`backend/tests/test_tenant_ownership.py`). Full suite: 172 passed, 3 skipped.
+> - **NOT done here:** `status` on generic updates and dedicated transition endpoints
+>   (WF-01), file isolation (FILE-01), action-level permissions (AUTHZ-01), the full
+>   cross-tenant HTTP matrix (TEN-TEST), branch scoping and optimistic locking.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1221,8 +1254,8 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 
 | Priority | ID | Task | Owner | Status |
 | --- | --- | --- | --- | --- |
-| P0 | SEC-01 | Remove default credentials; rotate passwords; revoke sessions | Backend/Security | In progress — SEC-001 code done; SEC-002 rotation/revocation tooling done; production rotation run still pending |
-| P0 | TEN-01 | Reject org_id/protected fields and force server ownership | Backend | Not started |
+| P0 | SEC-01 | Remove default credentials; rotate passwords; revoke sessions | Backend/Security | **OPEN P0 BLOCKER.** SEC-001 code done; SEC-002 tooling done; SEC-003 scanning done. SEC-004 (production rotation) is BLOCKED: OPERATOR-LED PRODUCTION ACTIVITY — no production operator environment is available. SEC-005 (history rewrite) BLOCKED BY SEC-004. |
+| P0 | TEN-01 | Reject org_id/protected fields and force server ownership | Backend | Repository work complete on `feature/ten-01-tenant-ownership` (PR open) — canonical protected-field policy, forced server-derived ownership, fail-closed DB guard, 106 tests. Fixed a live cross-tenant record-transfer defect. |
 | P0 | FILE-01 | Tenant-scope files and downloads | Backend | Not started |
 | P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Not started |
 | P0 | AUTHZ-01 | Action-level permission engine and endpoint inventory | Backend | Not started |

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
 from auth import require_user, require_role, require_module
 from models import ComplianceContactCreate
+from tenant_policy import reject_protected_fields
 
 router = APIRouter(tags=["compliance"])
 
@@ -189,7 +190,7 @@ async def create_contact(payload: ComplianceContactCreate,
 @router.put("/compliance/contacts/{cid}")
 async def update_contact(cid: str, payload: dict = Body(...),
                           user=Depends(require_role("management", "admin"))):
-    payload = {k: v for k, v in payload.items() if k not in ("id", "_id", "created_at", "created_by", "is_test_data")}
+    reject_protected_fields(payload)
     res = await db.compliance_contacts.update_one({"id": cid}, {"$set": payload})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Contact not found")

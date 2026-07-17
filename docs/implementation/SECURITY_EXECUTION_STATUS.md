@@ -1,0 +1,225 @@
+# FleetFlow — Security Execution Status
+
+**Purpose:** Persistent source of truth for the critical security programme across
+working sessions. Read this together with `MASTER_PLAN.md` and the relevant
+runbook before resuming any workstream.
+
+**Last updated:** 16 July 2026
+
+> **Rule of this document:** preparation and tooling are never recorded as
+> production execution. A workstream that has shipped code but has not been run
+> against production is recorded as *prepared*, not *complete*.
+
+---
+
+## Summary
+
+| ID | Workstream | Status | Production executed |
+| --- | --- | --- | --- |
+| SEC-001 | Secure bootstrap / remove default credentials | Merged | N/A (code only) |
+| SEC-002 | Credential-rotation tooling | Merged | **No** |
+| SEC-003 | Secret scanning + history-remediation prep | Merged | **No** (rewrite not executed) |
+| SEC-004 | Production legacy credential rotation | **BLOCKED: OPERATOR-LED PRODUCTION ACTIVITY** | **No** |
+| SEC-005 | Git-history sensitive-data removal | **BLOCKED BY SEC-004: OPERATOR-LED DESTRUCTIVE ACTIVITY** | **No** |
+| TEN-01 | Tenant ownership / mass-assignment | In progress — PR open | N/A |
+| FILE-01 | Tenant-scoped file security | Not started | N/A |
+| AUTH-01 | Secure session lifecycle | Not started | N/A |
+| AUTHZ-01 | Action-level permission engine | Not started | N/A |
+| FASTAG-01 | Demo-only simulation protection | Not started | N/A |
+| WF-01 | Protected workflows | Not started | N/A |
+| TEN-TEST | Cross-tenant security matrix | Not started | N/A |
+| SEC-CLOSEOUT | Critical security release gate | Not started | N/A |
+
+---
+
+## SEC-001 — Secure bootstrap
+
+- **Status:** Complete and merged.
+- **Branch:** `feature/sec-001-secure-bootstrap` (merged via PR #1).
+- **Scope:** Removed hardcoded default users/passwords and startup seeding;
+  added `backend/bootstrap.py` manual first-admin provisioning; org-scoped
+  last-admin deletion guard; redacted committed credentials.
+- **Production impact:** None. Code-only.
+- **Remaining risk:** Legacy `created_by:"system"` rows may still exist in live
+  databases with known passwords. That is SEC-004's problem, not SEC-001's.
+
+## SEC-002 — Credential-rotation tooling
+
+- **Status:** Tooling complete and merged. **Production rotation NOT executed.**
+- **Branch:** `feature/sec-002-credential-rotation` (merged via PR #2).
+- **Merge commit:** `f648e64`.
+- **Deliverables:** `backend/rotate_legacy_credentials.py` (647 lines),
+  `docs/implementation/CREDENTIAL_ROTATION.md`,
+  `backend/tests/test_rotate_legacy_credentials.py` (34 tests).
+- **Production impact:** None. No production data has been touched.
+
+## SEC-003 — Secret scanning and history-remediation preparation
+
+- **Status:** Complete and merged. **History rewrite NOT executed.**
+- **Branch:** `feature/sec-003-secret-scanning` (deleted after merge).
+- **PR:** #3 — merged 2026-07-16T08:00:32Z.
+- **Head SHA:** `5cf03ebc0fc0229f5fc0f1ce6889c292ab8948d8` (matches expected).
+- **Merge commit:** `334fde42326907e97bf6c8bd091d1acac805074a`.
+- **Scope:** Nine files, as expected — secret-scan workflow, `.gitleaks.toml`,
+  `.gitignore` hardening, two fixtures, `test_secret_scanning.py`,
+  `scan-secrets.sh`, and two docs.
+- **Verification:** `develop` and `origin/develop` both at `334fde4`;
+  `main` unmodified at `157dde5`; feature branch deleted locally and remotely.
+- **Production impact:** None.
+- **Remaining risk:** Legacy default-password values remain in pre-SEC-001 Git
+  history. Removal is SEC-005 and requires an approved, coordinated rewrite.
+
+---
+
+## SEC-004 — BLOCKED: OPERATOR-LED PRODUCTION ACTIVITY
+
+**This is a permanent classification, not a temporary state.** SEC-004 will be
+executed separately by an operator using the merged SEC-002 runbook when a
+genuine production operator environment with production connectivity exists. It
+is not attempted from the Emergent preview container, and the live-execution
+approval gate is not raised again until such an environment is available.
+
+**SEC-004 remains an open P0 release blocker.** It must appear as such in
+`MASTER_PLAN.md` and in `SECURITY_RELEASE_GATE.md` at closeout. It does not block
+independent repository-side workstreams, which continue in parallel.
+
+### Why it is blocked
+
+The rotation command resolves its target database from the environment
+(`rotate_legacy_credentials._connect()` reads `MONGO_URL` and `DB_NAME`). In
+this container those resolve to:
+
+- `MONGO_URL` → `mongodb://localhost:27017` — a `mongod` running **inside this
+  same container**, supervised locally (`supervisorctl` group `mongodb`).
+- `DB_NAME` → `test_database`.
+
+There is no production connection string, no staging target, and no evidence
+that a production database is network-reachable from here. Running the rotation
+command in this container would modify a local development database and would
+**not** constitute a production rotation. Recording it as one would be a false
+claim of production work.
+
+**Consequence:** the `APPROVE LIVE SEC-004 EXECUTION` gate is not meaningful for
+the coding agent. Approval alone would not grant production access. SEC-004 must
+be executed by an operator who holds production credentials, from an environment
+with production network reachability, following
+`docs/implementation/CREDENTIAL_ROTATION.md`.
+
+### Preview-container facts — NOT production architecture
+
+> **These describe the Emergent preview/development container only.** They are
+> recorded to explain why SEC-004 cannot run here. **None of them may be cited as
+> FleetFlow production architecture**, and the production operator must establish
+> each fact independently against the real environment.
+
+| Question | Preview container (NOT production) |
+| --- | --- |
+| Backend process | `uvicorn server:app --host 0.0.0.0 --port 8001`, supervisor program `backend` |
+| Restart procedure | `supervisorctl restart backend` |
+| Health check | `GET /api/` (`server.py`, `api_router.get("/")`) |
+| Mongo target | `mongodb://localhost:27017` — a `mongod` inside this same container |
+| Database name | `test_database` |
+| Backup tool | `mongodump` present at `/usr/bin/mongodump` |
+| Encrypted backup location | None designated |
+| Staging / restored copy | None available |
+
+### What the operator must supply before SEC-004 can proceed
+
+1. Production `MONGO_URL` and `DB_NAME`, supplied **via the operator's own
+   environment** — never pasted into chat, a repository file, or a log.
+2. Confirmation of the production restart procedure and health-check URL.
+3. A designated encrypted backup destination with a retention policy.
+4. A maintenance window.
+5. Ideally a restored production copy in an isolated environment, so the runbook
+   can be rehearsed against realistic data before touching production.
+
+### Repository-side work still open for SEC-004
+
+- Rehearsal harness that exercises the runbook end-to-end against an isolated,
+  clearly-named throwaway database (not `test_database`).
+- Deployment-specific command appendix in `CREDENTIAL_ROTATION.md`, written once
+  the production facts above are confirmed.
+- Non-secret evidence-log template.
+
+### Production impact to date
+
+**None.** No production database has been read, backed up, or modified. No
+legacy-account metadata has been read. A local database read was attempted
+during preparation and was correctly blocked by the sandbox policy before the
+approval gate.
+
+---
+
+## SEC-005 — BLOCKED BY SEC-004: OPERATOR-LED DESTRUCTIVE ACTIVITY
+
+**Permanent classification.** SEC-005 rewrites Git history to remove the
+already-rotated historical credential values. Its stated precondition is that
+SEC-004 has succeeded — old passwords confirmed invalid, old sessions revoked.
+Since SEC-004 is operator-led and not executed, SEC-005 cannot begin.
+
+Rewriting history *before* the credentials are rotated would be actively harmful:
+it would destroy the audit trail of which values need rotating while those values
+remain live.
+
+- **Preparation available:** the procedure is documented in
+  `docs/implementation/SECRET_SCANNING.md`; `git-filter-repo` (>= 2.47) is
+  installed in this container.
+- **Requires when unblocked:** contributor notification, verified mirror backup,
+  fork/clone inventory, maintenance window, branch-protection change and
+  restoration, GitHub Support follow-up, and the explicit
+  `APPROVE SEC-005 HISTORY REWRITE` gate.
+- **SEC-005 remains an open P0 release blocker.**
+
+---
+
+## TEN-01 — Tenant ownership and mass-assignment protection
+
+- **Status:** Repository work complete; PR open against `develop`.
+- **Branch:** `feature/ten-01-tenant-ownership`.
+- **Implementation doc:** `docs/implementation/TENANT_OWNERSHIP.md`.
+- **Production impact:** None. No production data accessed.
+
+**Defect found and fixed (P0, previously unreported):** six generic update
+endpoints filtered request bodies with a hand-written denylist that omitted
+`org_id`, while `TenantCollection` scoped only the update *filter* and not the
+update *document*. An authenticated user could move their own record into another
+organisation with `PUT /api/<resource>/{id}` and `{"org_id": "<victim-org>"}`.
+`insert_one` additionally used `setdefault("org_id", ...)`, so a client-supplied
+owner would win on any raw-dict create path.
+
+**Fix:** a canonical policy (`backend/tenant_policy.py`) replacing the scattered
+denylists, protected-field rejection at the request edge (`TenantSafeModel` plus
+route-level checks), and a fail-closed database layer that forces ownership on
+insert and refuses any update writing an ownership field.
+
+**Tests/checks:** 172 passed, 3 skipped (106 new). Ruff clean on touched files.
+Gitleaks clean. Frontend builds. Server imports; `GET /api/` returns 200.
+
+**Remaining limitations (explicitly NOT complete):** `status` still writable via
+generic updates (WF-01); files uncovered (FILE-01); role-tier not action-level
+authorisation (AUTHZ-01); full cross-tenant HTTP matrix (TEN-TEST); branch scoping
+and optimistic locking prepared but not issued/enforced.
+
+---
+
+## Environment / tooling notes
+
+- GitHub CLI is authenticated as `pankaj8121993-web` with scopes
+  `gist, read:org, repo, workflow`. Configuration lives under
+  `/root/.config/gh`; CLI state under `/root/.local/state/gh`. No
+  authentication artefacts exist inside `/app`.
+- `HOME` is unset in non-login shells, which prevents `gh` from resolving its
+  config directory. `/root/.bashrc` now exports `HOME`, `PATH`
+  (`/root/.local/bin`) and `GH_CONFIG_DIR` so future shells work.
+- `git-filter-repo` is installed (required for SEC-005).
+
+---
+
+## Next target
+
+**FILE-01 — Tenant-scoped file security**, once TEN-01 is merged.
+
+SEC-004 and SEC-005 stay open as operator-led P0 release blockers and do not gate
+the remaining repository-side workstreams (FILE-01, AUTH-01, AUTHZ-01, FASTAG-01,
+WF-01, TEN-TEST). They must both be resolved before SEC-CLOSEOUT can declare the
+critical security programme complete.
