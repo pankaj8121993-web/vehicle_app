@@ -92,6 +92,30 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """SEC-CLOSEOUT: baseline security headers on every response.
+
+    This is a JSON API, so the set is deliberately small and safe:
+    * nosniff — never let a browser re-interpret a response's content type;
+    * X-Frame-Options: DENY — API responses are never meant to be framed;
+    * Referrer-Policy: no-referrer — do not leak URLs to third parties;
+    * HSTS — only in production, where the deployment is HTTPS. Emitting it from
+      the plain-HTTP preview would pin browsers to HTTPS for a host that does not
+      serve it.
+    The file-download endpoints add their own stricter CSP/`no-store` on top.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    if os.environ.get("APP_ENV", "development").lower() == "production":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
+
 # Organisation id used ONLY to tag pre-multi-tenancy legacy records during
 # migration (_migrate_org_ids). Startup never creates this organisation or any
 # user — the first administrator is provisioned manually via `bootstrap.py`.
