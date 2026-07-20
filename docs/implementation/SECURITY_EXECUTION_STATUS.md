@@ -26,9 +26,9 @@ runbook before resuming any workstream.
 | AUTH-01 | Secure session lifecycle | **Merged** (PR #6, `ffd465c`) | N/A |
 | AUTHZ-01 | Action-level permission engine | **Merged** (PR #8, `e47db5a`) | N/A |
 | FASTAG-01 | Demo-only simulation protection | **Merged** (PR #9, `b4bb793`) | N/A |
-| WF-01 | Protected workflows | In progress — PR open | N/A |
+| WF-01 | Protected workflows | **Merged** (PR #10, `79c27dd`) | N/A |
 | TEN-TEST | Cross-tenant security matrix | In progress — PR open | N/A |
-| SEC-CLOSEOUT | Critical security release gate | Not started | N/A |
+| SEC-CLOSEOUT | Critical security release gate | In progress — PR open | N/A |
 
 ---
 
@@ -423,8 +423,9 @@ and must not reuse the simulation path when added.
 
 ## WF-01 — Protected workflow transitions
 
-- **Status:** Repository work complete; PR open against `develop`.
-- **Branch:** `feature/wf-01-workflow-transitions`.
+- **Status:** **Merged into `develop`.**
+- **Branch:** `feature/wf-01-workflow-transitions` (deleted after merge).
+- **PR:** #10. **Merge commit:** `79c27dd`. **CI:** gitleaks pass.
 - **Implementation doc:** `docs/implementation/WORKFLOWS.md`.
 - **Production impact:** None. No production data accessed.
 
@@ -461,6 +462,32 @@ separate audited admin action).
 
 ---
 
+## SEC-CLOSEOUT — Critical security release gate
+
+- **Status:** Repository work complete; PR open against `develop`.
+- **Branch:** `feature/sec-closeout-release-gate`.
+- **Deliverable:** `docs/implementation/SECURITY_RELEASE_GATE.md` — every P0
+  control reconciled with implementation ref, test + mutation evidence, PR/commit,
+  production-verification status, remaining exception and release decision.
+- **Also added:** app-wide security-headers middleware in `server.py` (nosniff,
+  X-Frame-Options: DENY, Referrer-Policy, HSTS in production), closing a gap the
+  gate surfaced. `test_security_headers.py` (5).
+- **Production impact:** None. No production data accessed.
+
+**Release decision (from the gate):**
+- Repository security programme: **COMPLETE**.
+- Production security operations: **BLOCKED** pending SEC-004 and SEC-005.
+- Production release: **NOT APPROVED.**
+
+**Open exceptions carried to production:** SEC-004 (P0), SEC-005 (P0), FILE-01
+production backfill, branch protection (recommended — not enabled autonomously as
+it is a governance decision), production env config (`APP_ENV=production`,
+`CORS_ORIGINS`, no `--reload`), production backup + restore test.
+
+**Full suite:** 606 passed, 3 skipped (the 3 are live-URL integration tests).
+
+---
+
 ## Environment / tooling notes
 
 - GitHub CLI is authenticated as `pankaj8121993-web` with scopes
@@ -476,7 +503,9 @@ separate audited admin action).
 
 ## Next target
 
-**SEC-CLOSEOUT — Critical security release gate**, once WF-01 is merged.
+Repository-side critical security programme is **complete**. Remaining
+work is operator-led: **SEC-004** then **SEC-005**, plus the production-config and
+branch-protection exceptions in `SECURITY_RELEASE_GATE.md`.
 
 TEN-TEST was deliberately run before AUTHZ-01: it validates the three merged
 stages against real cross-tenant traffic, so AUTHZ-01 and WF-01 build on a

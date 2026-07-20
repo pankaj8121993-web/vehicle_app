@@ -414,6 +414,17 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 > - **NOT done here:** rejecting a lower odometer on generic update (data-quality gap);
 >   `_version` wired only to the repair transition; no reversal path for terminal states.
 
+> **SEC-CLOSEOUT progress (repository work complete; PR open).**
+> Delivered on `feature/sec-closeout-release-gate`:
+> - Added `docs/implementation/SECURITY_RELEASE_GATE.md` — every P0 control reconciled
+>   with implementation reference, test + mutation evidence, PR/commit, production-verification
+>   status, remaining exception and a release decision.
+> - Added an app-wide security-headers middleware (nosniff, X-Frame-Options: DENY,
+>   Referrer-Policy, HSTS in production), closing a gap the gate surfaced. 5 tests.
+> - **Release decision:** repository security programme COMPLETE; production security
+>   operations BLOCKED pending SEC-004 and SEC-005; production release **NOT APPROVED**.
+> - Full suite: 606 passed, 3 skipped.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
