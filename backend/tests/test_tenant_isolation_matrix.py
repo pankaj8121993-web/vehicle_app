@@ -28,7 +28,6 @@ Design notes
   ``test_every_tenant_collection_is_registered`` fails when a new tenant-scoped
   collection appears without coverage. New modules must register here.
 """
-import asyncio
 import uuid
 
 import pytest
@@ -42,12 +41,7 @@ import session_security as ss  # noqa: E402
 
 # --- Event loop / driver ------------------------------------------------------
 
-_loop = asyncio.new_event_loop()
-
-
-def _run(coro):
-    """Drive a coroutine on the module's single loop (see module docstring)."""
-    return _loop.run_until_complete(coro)
+from conftest import realhttp_run as _run  # shared loop (see conftest)
 
 
 # --- Tenant client ------------------------------------------------------------
@@ -287,7 +281,6 @@ def tenants():
         await database.client.drop_database(database.raw_db.name)
 
     _run(teardown())
-    _loop.close()
 
 
 def _id_of(doc):

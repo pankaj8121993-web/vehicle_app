@@ -24,7 +24,7 @@ runbook before resuming any workstream.
 | TEN-01 | Tenant ownership / mass-assignment | **Merged** (PR #4, `d9ffc09`) | N/A |
 | FILE-01 | Tenant-scoped file security | **Merged** (PR #5, `ea489f9`) | N/A |
 | AUTH-01 | Secure session lifecycle | **Merged** (PR #6, `ffd465c`) | N/A |
-| AUTHZ-01 | Action-level permission engine | Not started | N/A |
+| AUTHZ-01 | Action-level permission engine | In progress — PR open | N/A |
 | FASTAG-01 | Demo-only simulation protection | Not started | N/A |
 | WF-01 | Protected workflows | Not started | N/A |
 | TEN-TEST | Cross-tenant security matrix | In progress — PR open | N/A |
@@ -342,6 +342,50 @@ pairwise (two-org) isolation only.
 
 ---
 
+## AUTHZ-01 — Action-level permission engine
+
+- **Status:** Repository work complete; PR open against `develop`.
+- **Branch:** `feature/authz-01-permission-engine`.
+- **Implementation doc:** `docs/implementation/AUTHORIZATION.md`.
+- **Production impact:** None. No production data accessed.
+
+**What it replaces:** scattered `require_role(...)` lists and hard-coded
+`if user["role"] == "viewer"` checks, with subtly different allowed-role sets for
+the same conceptual action across modules and nothing central to compare them.
+
+**Engine:** `backend/permissions.py` — a canonical catalogue of `resource:action`
+permissions, an explicit role→permission map keyed on the six effective tiers,
+and `auth.require_permission(...)` as the single primitive every mutating
+endpoint depends on. Platform permissions are defined separately and held by no
+current role (no platform console exists yet).
+
+**Key properties:** built to reproduce the pre-AUTHZ-01 guards exactly (behaviour
+preserved — all 492 prior tests still green), with two deliberate tightenings
+(viewer can no longer upload; trip-close/repair-advance no longer open to
+viewers — both were `require_user`). `roles:assign` is separated from
+`users:manage`; role changes and user creates are audited to `security_audit`
+(ids/action only, no secrets) and trigger immediate session revocation.
+
+**Enforcement guard:** a test walks the AST of every route module and fails the
+build if any mutating endpoint lacks `require_permission` (small explicit exempt
+set for unauthenticated/self-service flows and fastag_sync → FASTAG-01).
+
+**Defects found:** two real-HTTP test modules each owned their own event loop,
+which collided (Motor binds to the first loop) when run together — 186 errors.
+Fixed by a single shared loop owned by conftest.
+
+**Tests/checks:** 544 passed, 3 skipped (34 catalogue/wiring unit tests + 18
+real-HTTP per-role enforcement tests). Mutation-tested (removing make_crud's
+create permission let a driver create a service and tripped the wiring guards).
+Ruff clean. Gitleaks clean. Live smoke: admin allowed, viewer denied, reads OK.
+
+**Remaining limitations:** branch-scoped permissions are infrastructure-only (no
+branch_id yet); monetary/approval limits have a tested predicate but no endpoint
+enforces one (no product rule yet); record-state conditions belong to WF-01;
+fastag_sync still require_user (FASTAG-01).
+
+---
+
 ## Environment / tooling notes
 
 - GitHub CLI is authenticated as `pankaj8121993-web` with scopes
@@ -357,7 +401,7 @@ pairwise (two-org) isolation only.
 
 ## Next target
 
-**AUTHZ-01 — Action-level permission engine**, once TEN-TEST is merged.
+**FASTAG-01 — Demo-only simulation protection**, once AUTHZ-01 is merged.
 
 TEN-TEST was deliberately run before AUTHZ-01: it validates the three merged
 stages against real cross-tenant traffic, so AUTHZ-01 and WF-01 build on a

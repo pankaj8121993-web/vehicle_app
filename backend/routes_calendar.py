@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
-from auth import require_user, require_role, require_module
+from auth import require_permission, require_module
 from models import CalendarEventCreate
 from tenant_policy import reject_protected_fields
 
@@ -242,7 +242,7 @@ async def calendar(start: str, end: str, user=Depends(require_module("calendar")
 
 @router.post("/calendar/events")
 async def create_event(payload: CalendarEventCreate,
-                        user=Depends(require_role("data_entry", "management", "admin", "test"))):
+                        user=Depends(require_permission("calendar:create"))):
     doc = payload.model_dump()
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = _now().isoformat()
@@ -255,7 +255,7 @@ async def create_event(payload: CalendarEventCreate,
 
 @router.put("/calendar/events/{eid}")
 async def update_event(eid: str, payload: dict = Body(...),
-                        user=Depends(require_role("data_entry", "management", "admin", "test"))):
+                        user=Depends(require_permission("calendar:update"))):
     reject_protected_fields(payload)
     if user.get("role") == "test":
         existing = await db.calendar_events.find_one({"id": eid}, {"_id": 0, "is_test_data": 1})
@@ -268,7 +268,7 @@ async def update_event(eid: str, payload: dict = Body(...),
 
 
 @router.delete("/calendar/events/{eid}")
-async def delete_event(eid: str, user=Depends(require_role("admin", "test"))):
+async def delete_event(eid: str, user=Depends(require_permission("calendar:delete"))):
     if user.get("role") == "test":
         existing = await db.calendar_events.find_one({"id": eid}, {"_id": 0, "is_test_data": 1})
         if not existing or not existing.get("is_test_data"):

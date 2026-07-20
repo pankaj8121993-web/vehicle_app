@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
-from auth import require_user, require_role, require_module
+from auth import require_permission, require_module
 from models import ComplianceContactCreate
 from tenant_policy import reject_protected_fields
 
@@ -174,7 +174,7 @@ async def list_contacts(user=Depends(require_module("compliance"))):
 
 @router.post("/compliance/contacts")
 async def create_contact(payload: ComplianceContactCreate,
-                          user=Depends(require_role("management", "admin"))):
+                          user=Depends(require_permission("compliance:create"))):
     if payload.compliance_type not in COMPLIANCE_TYPES:
         raise HTTPException(status_code=400, detail="Invalid compliance type")
     doc = payload.model_dump()
@@ -189,7 +189,7 @@ async def create_contact(payload: ComplianceContactCreate,
 
 @router.put("/compliance/contacts/{cid}")
 async def update_contact(cid: str, payload: dict = Body(...),
-                          user=Depends(require_role("management", "admin"))):
+                          user=Depends(require_permission("compliance:update"))):
     reject_protected_fields(payload)
     res = await db.compliance_contacts.update_one({"id": cid}, {"$set": payload})
     if res.matched_count == 0:
@@ -198,6 +198,6 @@ async def update_contact(cid: str, payload: dict = Body(...),
 
 
 @router.delete("/compliance/contacts/{cid}")
-async def delete_contact(cid: str, user=Depends(require_role("admin"))):
+async def delete_contact(cid: str, user=Depends(require_permission("compliance:delete"))):
     await db.compliance_contacts.delete_one({"id": cid})
     return {"ok": True}

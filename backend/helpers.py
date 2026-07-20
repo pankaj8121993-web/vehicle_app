@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
-from auth import require_user, require_role, MODULE_ACCESS
+from auth import require_user, require_permission, MODULE_ACCESS
 from tenant_policy import reject_protected_fields
 
 
@@ -30,7 +30,13 @@ async def enrich(items):
     return items
 
 
-def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: str = "date", on_create=None, driver_can_create: bool = False, module: str = None):
+def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: str = "date", on_create=None, driver_can_create: bool = False, module: str = None, perm_resource: str = None):
+    # AUTHZ-01: the permission resource is the path with hyphens normalised
+    # ("tyre-events" -> "tyre_events"), matching permissions.CRUD_RESOURCES.
+    # driver_can_create is retained only for signature compatibility; the driver
+    # create allowlist now lives in the permission catalogue.
+    perm = perm_resource or path.replace("-", "_")
+
     @router.get(f"/{path}")
     async def list_items(request: Request, user=Depends(require_user)):
         _check_module(user, module)
@@ -58,11 +64,7 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         return {"items": await enrich(items), "total": total, "page": page, "page_size": page_size}
 
     @router.post(f"/{path}")
-    async def create_item(payload: CreateModel, user=Depends(require_user)):
-        if user["role"] == "viewer":
-            raise HTTPException(status_code=403, detail="Viewers have read-only access")
-        if user["role"] == "driver" and not driver_can_create:
-            raise HTTPException(status_code=403, detail="Drivers can only add trips, fuel entries and breakdown reports")
+    async def create_item(payload: CreateModel, user=Depends(require_permission(f"{perm}:create"))):
         doc = payload.model_dump()
         doc["id"] = str(uuid.uuid4())
         doc["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -75,7 +77,7 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         return doc
 
     @router.put(f"/{path}/{{item_id}}")
-    async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
+    async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_permission(f"{perm}:update"))):
         reject_protected_fields(payload)
         if user.get("role") == "test":
             existing = await db[coll].find_one({"id": item_id}, {"_id": 0, "is_test_data": 1})
@@ -87,7 +89,7 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         return await db[coll].find_one({"id": item_id}, {"_id": 0})
 
     @router.delete(f"/{path}/{{item_id}}")
-    async def delete_item(item_id: str, user=Depends(require_role("admin", "test"))):
+    async def delete_item(item_id: str, user=Depends(require_permission(f"{perm}:delete"))):
         if user.get("role") == "test":
             existing = await db[coll].find_one({"id": item_id}, {"_id": 0, "is_test_data": 1})
             if not existing or not existing.get("is_test_data"):
