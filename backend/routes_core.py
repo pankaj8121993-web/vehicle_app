@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File, Response
 from database import db
-from auth import require_user, require_role, require_module
+from auth import require_user, require_permission, require_module
 from models import VehicleCreate, DriverCreate, DocumentCreate
 from helpers import make_crud, enrich, gather_expenses
 from tenant_policy import reject_protected_fields
@@ -57,9 +57,7 @@ async def list_vehicles(request: Request, user=Depends(require_user)):
 
 
 @router.post("/vehicles")
-async def create_vehicle(payload: VehicleCreate, user=Depends(require_user)):
-    if user["role"] in ("driver", "viewer"):
-        raise HTTPException(status_code=403, detail="You do not have permission to create vehicles")
+async def create_vehicle(payload: VehicleCreate, user=Depends(require_permission("vehicles:create"))):
     doc = payload.model_dump()
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -71,7 +69,7 @@ async def create_vehicle(payload: VehicleCreate, user=Depends(require_user)):
 
 
 @router.put("/vehicles/{vid}")
-async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
+async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_permission("vehicles:update"))):
     reject_protected_fields(payload)
     existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not existing:
@@ -117,7 +115,7 @@ async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(requi
 
 
 @router.delete("/vehicles/{vid}")
-async def delete_vehicle(vid: str, user=Depends(require_role("admin", "test"))):
+async def delete_vehicle(vid: str, user=Depends(require_permission("vehicles:delete"))):
     existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -345,9 +343,7 @@ async def list_drivers(request: Request, user=Depends(require_module("drivers"))
 
 
 @router.post("/drivers")
-async def create_driver(payload: DriverCreate, user=Depends(require_user)):
-    if user["role"] in ("driver", "viewer"):
-        raise HTTPException(status_code=403, detail="You do not have permission to create driver records")
+async def create_driver(payload: DriverCreate, user=Depends(require_permission("drivers:create"))):
     doc = payload.model_dump()
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -359,7 +355,7 @@ async def create_driver(payload: DriverCreate, user=Depends(require_user)):
 
 
 @router.put("/drivers/{did}")
-async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_role("data_entry", "management", "admin", "test"))):
+async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_permission("drivers:update"))):
     reject_protected_fields(payload)
     existing = await db.drivers.find_one({"id": did}, {"_id": 0})
     if not existing:
@@ -387,7 +383,7 @@ async def update_driver(did: str, payload: dict = Body(...), user=Depends(requir
 
 
 @router.delete("/drivers/{did}")
-async def delete_driver(did: str, user=Depends(require_role("admin", "test"))):
+async def delete_driver(did: str, user=Depends(require_permission("drivers:delete"))):
     existing = await db.drivers.find_one({"id": did}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Driver not found")
@@ -463,7 +459,7 @@ async def _read_upload_limited(file: UploadFile) -> bytes:
 
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...), user=Depends(require_user)):
+async def upload_file(file: UploadFile = File(...), user=Depends(require_permission("files:upload"))):
     org_id = user.get("org_id")
     if not org_id:
         # Fail closed: without an organisation there is no owner to file this

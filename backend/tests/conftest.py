@@ -23,6 +23,26 @@ TEST_DB_NAME = "fleetflow_automated_tests"
 os.environ["DB_NAME"] = TEST_DB_NAME
 
 
+# --- Shared event loop for real-HTTP test modules -----------------------------
+#
+# The real-app test modules (test_tenant_isolation_matrix, test_authz_enforcement)
+# drive the running FastAPI app over an event loop. Motor's client binds to the
+# first loop that uses it, so if each module owned its own loop they would work
+# in isolation but collide when run together — the second module's operations
+# would hit a client bound to the first module's (possibly closed) loop.
+#
+# One process-wide loop, owned here and never closed by a test module, removes
+# that coupling. Modules call realhttp_run() instead of asyncio.run().
+import asyncio  # noqa: E402
+
+_SHARED_LOOP = asyncio.new_event_loop()
+
+
+def realhttp_run(coro):
+    """Drive a coroutine on the shared loop bound to the Motor client."""
+    return _SHARED_LOOP.run_until_complete(coro)
+
+
 # Integration test roles and the environment variables that supply their
 # credentials. No credentials are hardcoded; supply them per environment.
 LIVE_CRED_ROLES = ("admin", "management", "data_entry", "driver", "test")

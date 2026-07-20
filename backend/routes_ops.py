@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
-from auth import require_user, require_role
+from auth import require_permission
 from models import TripCreate, FuelCreate, ServiceCreate, RepairCreate, GreasingCreate
 from helpers import make_crud
 
@@ -30,7 +30,7 @@ make_crud(router, "trips", "trips", TripCreate, on_create=on_trip_create, driver
 
 
 @router.patch("/trips/{trip_id}/close")
-async def close_trip(trip_id: str, payload: dict = Body(...), user=Depends(require_user)):
+async def close_trip(trip_id: str, payload: dict = Body(...), user=Depends(require_permission("trips:close"))):
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
@@ -132,7 +132,7 @@ make_crud(router, "repairs", "repairs", RepairCreate, on_create=on_repair_create
 
 
 @router.patch("/repairs/{repair_id}/status")
-async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends(require_user)):
+async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends(require_permission("repairs:transition"))):
     repair = await db.repairs.find_one({"id": repair_id}, {"_id": 0})
     if not repair:
         raise HTTPException(status_code=404, detail="Ticket not found")

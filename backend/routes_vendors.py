@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
-from auth import require_user, require_role, require_module
+from auth import require_permission, require_module
 from models import VendorCreate
 from tenant_policy import reject_protected_fields
 
@@ -37,7 +37,7 @@ async def list_vendors(request: Request, user=Depends(require_module("vendors"))
 
 
 @router.post("/vendors")
-async def create_vendor(payload: VendorCreate, user=Depends(require_user)):
+async def create_vendor(payload: VendorCreate, user=Depends(require_permission("vendors:create"))):
     if user.get("role") in ("driver", "viewer"):
         raise HTTPException(status_code=403, detail="You do not have permission to manage vendors")
     if payload.vendor_type not in VENDOR_TYPES:
@@ -54,7 +54,7 @@ async def create_vendor(payload: VendorCreate, user=Depends(require_user)):
 
 @router.put("/vendors/{vid}")
 async def update_vendor(vid: str, payload: dict = Body(...),
-                        user=Depends(require_role("data_entry", "management", "admin", "test"))):
+                        user=Depends(require_permission("vendors:update"))):
     reject_protected_fields(payload)
     if user.get("role") == "test":
         existing = await db.vendors.find_one({"id": vid}, {"_id": 0, "is_test_data": 1})
@@ -69,7 +69,7 @@ async def update_vendor(vid: str, payload: dict = Body(...),
 
 
 @router.delete("/vendors/{vid}")
-async def delete_vendor(vid: str, user=Depends(require_role("admin", "test"))):
+async def delete_vendor(vid: str, user=Depends(require_permission("vendors:delete"))):
     if user.get("role") == "test":
         existing = await db.vendors.find_one({"id": vid}, {"_id": 0, "is_test_data": 1})
         if not existing or not existing.get("is_test_data"):

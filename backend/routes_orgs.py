@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from passlib.hash import bcrypt
 from database import db, raw_db, current_org_id
-from auth import require_user, require_role, create_session, set_session_cookies, ROLES, allowed_modules
+from auth import require_user, require_permission, create_session, set_session_cookies, ROLES, allowed_modules
 from models import OrgRegister
 from tenant_policy import reject_protected_fields
 import demo_seed
@@ -153,7 +153,7 @@ async def get_org(user=Depends(require_user)):
 
 
 @router.put("/org")
-async def update_org(payload: dict = Body(...), user=Depends(require_role("admin", "management"))):
+async def update_org(payload: dict = Body(...), user=Depends(require_permission("org:update"))):
     if user.get("is_demo"):
         raise HTTPException(status_code=403, detail="Demo users cannot change organisation settings")
     reject_protected_fields(payload)
@@ -178,7 +178,7 @@ async def list_branches(user=Depends(require_user)):
 
 
 @router.post("/branches")
-async def create_branch(payload: dict = Body(...), user=Depends(require_role("admin", "management"))):
+async def create_branch(payload: dict = Body(...), user=Depends(require_permission("branches:create"))):
     reject_protected_fields(payload)
     name = (payload.get("name") or "").strip()
     if not name:
@@ -200,7 +200,7 @@ async def create_branch(payload: dict = Body(...), user=Depends(require_role("ad
 
 
 @router.put("/branches/{bid}")
-async def update_branch(bid: str, payload: dict = Body(...), user=Depends(require_role("admin", "management"))):
+async def update_branch(bid: str, payload: dict = Body(...), user=Depends(require_permission("branches:update"))):
     reject_protected_fields(payload)
     updates = {k: v for k, v in payload.items() if k in ("name", "code", "address", "contact_person", "phone", "email")}
     res = await db.branches.update_one({"id": bid}, {"$set": updates})
@@ -210,7 +210,7 @@ async def update_branch(bid: str, payload: dict = Body(...), user=Depends(requir
 
 
 @router.delete("/branches/{bid}")
-async def delete_branch(bid: str, user=Depends(require_role("admin"))):
+async def delete_branch(bid: str, user=Depends(require_permission("branches:delete"))):
     branch = await db.branches.find_one({"id": bid}, {"_id": 0})
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")

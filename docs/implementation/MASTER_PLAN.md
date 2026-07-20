@@ -351,6 +351,32 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 > - **NOT done here:** background-job/notification coverage (neither exists), signed-URL
 >   coverage (FILE-01 streams instead), timing-channel analysis, N-tenant isolation.
 
+> **AUTHZ-01 progress (repository work complete; PR open).**
+> Delivered on `feature/authz-01-permission-engine`:
+> - Replaced scattered `require_role(...)` lists and hard-coded viewer/driver checks
+>   with a canonical **action-permission catalogue** (`backend/permissions.py`):
+>   `resource:action` permissions, an explicit role→permission map keyed on the six
+>   effective tiers, and `auth.require_permission(...)` as the single primitive every
+>   mutating endpoint depends on.
+> - Platform permissions are defined separately and held by **no current role**
+>   (`org_admin` is an organisation top, not a platform superuser; no platform
+>   console exists yet).
+> - Built to reproduce the pre-AUTHZ-01 guards **exactly** — all 492 prior tests stay
+>   green — with two deliberate tightenings: a read-only viewer can no longer upload,
+>   and trip-close/repair-advance are no longer open to viewers (both were
+>   `require_user`).
+> - `roles:assign` separated from `users:manage`; role changes and user creation are
+>   **audited** to `security_audit` (ids/action only, no secrets) and trigger immediate
+>   session revocation.
+> - A build-time guard walks the AST of every route module and fails if any mutating
+>   endpoint lacks `require_permission`.
+> - Added `docs/implementation/AUTHORIZATION.md`, 34 catalogue/wiring unit tests and 18
+>   real-HTTP per-role enforcement tests. Full suite: 544 passed, 3 skipped.
+>   Mutation-tested; live-smoke-verified (admin allowed, viewer denied, reads OK).
+> - **NOT done here:** branch-scoped permissions (no branch_id yet), enforced monetary
+>   limits (predicate ready, no product rule), record-state conditions (WF-01),
+>   fastag_sync lockdown (FASTAG-01).
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1339,7 +1365,7 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 | P0 | TEN-01 | Reject org_id/protected fields and force server ownership | Backend | Repository work complete on `feature/ten-01-tenant-ownership` (PR open) — canonical protected-field policy, forced server-derived ownership, fail-closed DB guard, 106 tests. Fixed a live cross-tenant record-transfer defect. |
 | P0 | FILE-01 | Tenant-scope files and downloads | Backend | Repository work complete on `feature/file-01-tenant-file-security` (PR open) — `files` tenant-scoped, per-uploader ownership migration, type/signature allowlist, safe download headers, 76 tests. Fixed a live cross-tenant file-disclosure defect. Exceptions: no malware scanning, no signed URLs, no linked-record ACL (AUTHZ-01). |
 | P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Repository work complete on `feature/auth-01-secure-sessions` (PR open) — hashed tokens, HttpOnly cookies, double-submit CSRF, idle+absolute expiry, rotation, revoke one/all, TTL indexes, login throttling, CORS allowlist, 56 tests. Fixed plaintext session storage and unbounded sliding expiry. Exception: no self-service password reset (no mail transport). |
-| P0 | AUTHZ-01 | Action-level permission engine and endpoint inventory | Backend | Not started |
+| P0 | AUTHZ-01 | Action-level permission engine and endpoint inventory | Backend | Repository work complete on `feature/authz-01-permission-engine` (PR open) — canonical `resource:action` catalogue, role→permission map, `require_permission` on every mutating endpoint (AST-guarded), platform/org separation, role-change audit + revocation, 52 tests, mutation-tested. Behaviour preserved (492 prior tests green). |
 | P0 | FASTAG-01 | Disable simulated sync in live organisations | Backend | Not started |
 | P0 | WF-01 | Protect status/approval/payment fields from generic updates | Backend | Not started |
 | P1 | TEN-TEST | Automated cross-tenant test suite | QA/Security | Repository work complete on `feature/ten-test-isolation-matrix` (PR open) — 188 real-HTTP two-org isolation tests, registry-driven so new modules must register, mutation-tested. Found and fixed two real defects in `auth.py`. |

@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
-from auth import require_user, require_role, require_module
+from auth import require_permission, require_module
 from helpers import gather_expenses
 from tenant_policy import reject_protected_fields
 
@@ -198,7 +198,7 @@ async def list_budgets(month: str = None, user=Depends(require_module("expenses"
 
 
 @router.post("/budgets")
-async def create_budget(payload: dict = Body(...), user=Depends(require_role("management", "admin", "data_entry"))):
+async def create_budget(payload: dict = Body(...), user=Depends(require_permission("budgets:create"))):
     reject_protected_fields(payload)
     category = payload.get("category")
     month = payload.get("month")
@@ -220,7 +220,7 @@ async def create_budget(payload: dict = Body(...), user=Depends(require_role("ma
 
 
 @router.put("/budgets/{bid}")
-async def update_budget(bid: str, payload: dict = Body(...), user=Depends(require_role("management", "admin", "data_entry"))):
+async def update_budget(bid: str, payload: dict = Body(...), user=Depends(require_permission("budgets:update"))):
     reject_protected_fields(payload)
     amount = payload.get("amount")
     if not isinstance(amount, (int, float)) or amount <= 0:
@@ -232,7 +232,7 @@ async def update_budget(bid: str, payload: dict = Body(...), user=Depends(requir
 
 
 @router.delete("/budgets/{bid}")
-async def delete_budget(bid: str, user=Depends(require_role("management", "admin"))):
+async def delete_budget(bid: str, user=Depends(require_permission("budgets:delete"))):
     await db.budgets.delete_one({"id": bid})
     return {"ok": True}
 

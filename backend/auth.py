@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from passlib.hash import bcrypt
 from database import db, raw_db, current_org_id
 from models import UserCreate, UserUpdate, PasswordChange, LoginRequest
+import permissions
 import session_security as ss
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,46 @@ def require_module(module):
             raise HTTPException(status_code=403, detail="Your role does not have access to this module")
         return user
     return dep
+
+
+def require_permission(permission: str):
+    """AUTHZ-01 — enforce a canonical action permission at a mutating endpoint.
+
+    The single authorisation primitive routes call. It resolves the session,
+    blocks users who must change their password, and checks the *effective* role
+    against the permission catalogue. The permission is validated against the
+    catalogue at call time so a typo becomes an immediate error rather than a
+    silently-ungranted (and therefore always-403) endpoint.
+    """
+    if permission not in permissions.ALL_PERMISSIONS:
+        raise ValueError(f"Unknown permission: {permission!r}")
+
+    async def dep(user=Depends(require_user)):
+        if user.get("_must_change_pw"):
+            raise HTTPException(status_code=403, detail="Must change password first")
+        if not permissions.has_permission(user.get("role"), permission):
+            raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+        return user
+    return dep
+
+
+async def record_security_event(action: str, actor: dict, *, target_id=None, detail=None):
+    """Append a non-secret entry to the shared security_audit collection.
+
+    AUTHZ-01 requires an audit trail for role and permission changes. The record
+    holds ids and the action only — never passwords, hashes, tokens or the
+    contents of any changed field.
+    """
+    await raw_db.security_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": action,
+        "actor_id": actor.get("user_id") or actor.get("id"),
+        "actor_role": actor.get("actual_role") or actor.get("role"),
+        "org_id": actor.get("org_id"),
+        "target_id": target_id,
+        "detail": detail,
+        "at": _now(),
+    })
 
 # In-memory cache: token_hash -> (user_dict, session_dict, cached_at).
 #
@@ -528,17 +569,20 @@ async def change_password(
 # ---------- User Management (admin only) ----------
 
 @router.get("/users")
-async def list_users(user=Depends(require_role("admin"))):
+async def list_users(user=Depends(require_permission("users:manage"))):
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("username", 1).to_list(500)
     return users
 
 
 @router.post("/users")
-async def create_user(payload: UserCreate, user=Depends(require_role("admin"))):
+async def create_user(payload: UserCreate, user=Depends(require_permission("users:manage"))):
     if user.get("is_demo"):
         raise HTTPException(status_code=403, detail="Demo users cannot manage users")
     if payload.role not in ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
+    # Creating a user with a role is a role assignment.
+    if not permissions.has_permission(user.get("role"), "roles:assign"):
+        raise HTTPException(status_code=403, detail="You may not assign roles")
     if len(payload.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     username = payload.username.lower().strip()
@@ -559,17 +603,25 @@ async def create_user(payload: UserCreate, user=Depends(require_role("admin"))):
         "created_by": user["id"],
     }
     await db.users.insert_one({**doc})
+    await record_security_event("user.create", user, target_id=doc["id"],
+                                detail={"role": payload.role})
     doc.pop("password_hash", None)
     return doc
 
 
 @router.put("/users/{uid}")
-async def update_user(uid: str, payload: UserUpdate, user=Depends(require_role("admin"))):
+async def update_user(uid: str, payload: UserUpdate, user=Depends(require_permission("users:manage"))):
     if user.get("is_demo"):
         raise HTTPException(status_code=403, detail="Demo users cannot manage users")
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
-    if updates.get("role") and updates["role"] not in ROLES:
-        raise HTTPException(status_code=400, detail="Invalid role")
+    # Changing a role additionally requires roles:assign (the escalation-sensitive
+    # permission). db.users is org-scoped, so this only ever targets the caller's
+    # own organisation — a cross-tenant uid simply does not match (404).
+    if "role" in updates:
+        if not permissions.has_permission(user.get("role"), "roles:assign"):
+            raise HTTPException(status_code=403, detail="You may not change roles")
+        if updates["role"] not in ROLES:
+            raise HTTPException(status_code=400, detail="Invalid role")
     res = await db.users.update_one({"id": uid}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
@@ -578,11 +630,18 @@ async def update_user(uid: str, payload: UserUpdate, user=Depends(require_role("
         # (or under an active account) working.
         reason = "role_change" if "role" in updates else "activation_change"
         await revoke_user_sessions(uid, reason=reason)
+        # Audit every role/activation change (AUTHZ-01). Records the action and
+        # ids only — never any secret.
+        await record_security_event(
+            f"user.{reason}", user, target_id=uid,
+            detail={"role": updates.get("role")} if "role" in updates
+            else {"is_active": updates.get("is_active")},
+        )
     return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
 
 
 @router.post("/users/{uid}/reset-password")
-async def reset_password(uid: str, user=Depends(require_role("admin"))):
+async def reset_password(uid: str, user=Depends(require_permission("users:manage"))):
     if user.get("is_demo"):
         raise HTTPException(status_code=403, detail="Demo users cannot manage users")
     target = await db.users.find_one({"id": uid})
@@ -603,7 +662,7 @@ async def reset_password(uid: str, user=Depends(require_role("admin"))):
 
 
 @router.delete("/users/{uid}")
-async def delete_user(uid: str, user=Depends(require_role("admin"))):
+async def delete_user(uid: str, user=Depends(require_permission("users:manage"))):
     if user.get("is_demo"):
         raise HTTPException(status_code=403, detail="Demo users cannot manage users")
     if uid == user["id"]:
@@ -648,7 +707,7 @@ async def list_roles():
 # ---------- Admin: purge test data ----------
 
 @router.post("/admin/purge-test-data")
-async def purge_test_data(user=Depends(require_role("admin"))):
+async def purge_test_data(user=Depends(require_permission("testdata:purge"))):
     collections = [
         "vehicles", "drivers", "documents", "trips", "fuel_entries",
         "services", "repairs", "tyres", "tyre_events", "accidents",
