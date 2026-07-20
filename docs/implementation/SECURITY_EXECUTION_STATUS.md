@@ -25,8 +25,8 @@ runbook before resuming any workstream.
 | FILE-01 | Tenant-scoped file security | **Merged** (PR #5, `ea489f9`) | N/A |
 | AUTH-01 | Secure session lifecycle | **Merged** (PR #6, `ffd465c`) | N/A |
 | AUTHZ-01 | Action-level permission engine | **Merged** (PR #8, `e47db5a`) | N/A |
-| FASTAG-01 | Demo-only simulation protection | In progress — PR open | N/A |
-| WF-01 | Protected workflows | Not started | N/A |
+| FASTAG-01 | Demo-only simulation protection | **Merged** (PR #9, `b4bb793`) | N/A |
+| WF-01 | Protected workflows | In progress — PR open | N/A |
 | TEN-TEST | Cross-tenant security matrix | In progress — PR open | N/A |
 | SEC-CLOSEOUT | Critical security release gate | Not started | N/A |
 
@@ -389,8 +389,9 @@ fastag_sync still require_user (FASTAG-01).
 
 ## FASTAG-01 — Demo-only FASTag simulation protection
 
-- **Status:** Repository work complete; PR open against `develop`.
-- **Branch:** `feature/fastag-01-demo-simulation`.
+- **Status:** **Merged into `develop`.**
+- **Branch:** `feature/fastag-01-demo-simulation` (deleted after merge).
+- **PR:** #9. **Merge commit:** `b4bb793`. **CI:** gitleaks pass.
 - **Implementation doc:** `docs/implementation/FASTAG_SIMULATION.md`.
 - **Production impact:** None. No production data accessed.
 
@@ -420,6 +421,46 @@ and must not reuse the simulation path when added.
 
 ---
 
+## WF-01 — Protected workflow transitions
+
+- **Status:** Repository work complete; PR open against `develop`.
+- **Branch:** `feature/wf-01-workflow-transitions`.
+- **Implementation doc:** `docs/implementation/WORKFLOWS.md`.
+- **Production impact:** None. No production data accessed.
+
+**Defect class:** generic CRUD drove operational state directly. A client could
+un-dispose a vehicle (`PUT {"status":"active"}` on a sold vehicle), reopen a
+closed downtime, jump a repair from open straight to closed, or re-close a
+completed trip (recomputing distance/odometer). `status` was deliberately left
+out of TEN-01's protected fields so WF-01 could give it a real model.
+
+**Engine (`backend/workflow.py`):** explicit state graphs for repairs, vehicles,
+drivers, downtime and trips, plus one validator every status change runs through.
+Invalid edge → 409; terminal states can't be left; role-gated targets (disposal,
+exit) enforced in the engine; idempotent (same-state = no-op); optimistic
+concurrency via `_version` (repair transition uses it); every transition audited.
+Generic updates call `enforce_generic_status_change` before writing, so a generic
+PUT can no longer bypass the workflow. Graphs use the actual status values the app
+writes (verified against code: trips ongoing/completed, minor repairs created
+closed, vehicles include idle).
+
+**No genuine workflow (documented, not invented):** expenses/payments/approvals —
+FleetFlow has no expense-approval, payment or generic-approval workflow (the only
+approval is the repair `approved` state); tyres/FASTag status is a label;
+odometer is a monotonic invariant, not a state machine.
+
+**Tests/checks:** 601 passed, 3 skipped (35 new). Mutation-tested (disabling the
+edge check fails 6 tests incl. real-HTTP un-dispose and downtime-reopen). Ruff
+clean. Gitleaks clean. Live smoke: admin dispose 200, un-dispose 409.
+
+**Remaining limitations:** a direct generic update can still set a lower
+`current_odometer` (data-quality gap, not a bypass); `_version` is issued/checked
+only on the repair transition (wiring it to vehicle/driver needs a frontend
+round-trip); no reversal path for terminal states (deliberate — would be a
+separate audited admin action).
+
+---
+
 ## Environment / tooling notes
 
 - GitHub CLI is authenticated as `pankaj8121993-web` with scopes
@@ -435,7 +476,7 @@ and must not reuse the simulation path when added.
 
 ## Next target
 
-**WF-01 — Protected workflow transitions**, once FASTAG-01 is merged.
+**SEC-CLOSEOUT — Critical security release gate**, once WF-01 is merged.
 
 TEN-TEST was deliberately run before AUTHZ-01: it validates the three merged
 stages against real cross-tenant traffic, so AUTHZ-01 and WF-01 build on a

@@ -3,11 +3,12 @@ import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File, Response
 from database import db
-from auth import require_user, require_permission, require_module
+from auth import require_user, require_permission, require_module, record_security_event
 from models import VehicleCreate, DriverCreate, DocumentCreate
 from helpers import make_crud, enrich, gather_expenses
 from tenant_policy import reject_protected_fields
 import file_policy
+import workflow
 from storage import put_object, get_object, APP_NAME
 
 logger = logging.getLogger(__name__)
@@ -77,14 +78,20 @@ async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(requi
     if user.get("role") == "test" and not existing.get("is_test_data"):
         raise HTTPException(status_code=403, detail="Test mode: cannot modify real vehicles")
 
+    # WF-01: validate any status change against the vehicle state graph. This
+    # blocks un-disposing (sold/scrapped are terminal) and enforces that disposal
+    # is management/admin only — a generic update can no longer bypass either.
     new_status = payload.get("status")
+    status_changing = False
+    if new_status is not None:
+        status_changing = workflow.enforce_generic_status_change(
+            "vehicles", existing, payload, role=user.get("role")
+        )
     is_disposing = (
         new_status in DISPOSED_STATUSES
         and existing.get("status") not in DISPOSED_STATUSES
     )
     if is_disposing:
-        if user.get("role") not in ("management", "admin"):
-            raise HTTPException(status_code=403, detail="Only Management or Admin can mark a vehicle as Sold or Scrapped")
         if not payload.get("disposal_date"):
             payload["disposal_date"] = today_iso()
         # Close any open downtimes (recompute `days` so finance/reports stay correct)
@@ -111,6 +118,13 @@ async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(requi
     res = await db.vehicles.update_one({"id": vid}, {"$set": payload})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Vehicle not found")
+    if is_disposing:
+        # A terminal, side-effecting transition — audit it.
+        await record_security_event("vehicle.dispose", user, target_id=vid,
+                                    detail={"status": new_status})
+    elif status_changing:
+        await record_security_event("vehicle.status_change", user, target_id=vid,
+                                    detail={"from": existing.get("status"), "to": new_status})
     return await db.vehicles.find_one({"id": vid}, {"_id": 0})
 
 
@@ -363,14 +377,20 @@ async def update_driver(did: str, payload: dict = Body(...), user=Depends(requir
     if user.get("role") == "test" and not existing.get("is_test_data"):
         raise HTTPException(status_code=403, detail="Test mode: cannot modify real drivers")
 
+    # WF-01: validate any status change against the driver state graph — blocks
+    # un-exiting (resigned/terminated are terminal) and enforces exit is
+    # management/admin only, through the same engine as vehicles.
     new_status = payload.get("status")
+    status_changing = False
+    if new_status is not None:
+        status_changing = workflow.enforce_generic_status_change(
+            "drivers", existing, payload, role=user.get("role")
+        )
     is_exiting = (
         new_status in DRIVER_EXIT_STATUSES
         and existing.get("status") not in DRIVER_EXIT_STATUSES
     )
     if is_exiting:
-        if user.get("role") not in ("management", "admin"):
-            raise HTTPException(status_code=403, detail="Only Management or Admin can mark a driver as Resigned or Terminated")
         if not payload.get("exit_date"):
             payload["exit_date"] = today_iso()
         # Auto-unassign vehicle
@@ -379,6 +399,12 @@ async def update_driver(did: str, payload: dict = Body(...), user=Depends(requir
     res = await db.drivers.update_one({"id": did}, {"$set": payload})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Driver not found")
+    if is_exiting:
+        await record_security_event("driver.exit", user, target_id=did,
+                                    detail={"status": new_status})
+    elif status_changing:
+        await record_security_event("driver.status_change", user, target_id=did,
+                                    detail={"from": existing.get("status"), "to": new_status})
     return await db.drivers.find_one({"id": did}, {"_id": 0})
 
 

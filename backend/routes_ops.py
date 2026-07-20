@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
 from database import db
-from auth import require_permission
+from auth import require_permission, record_security_event
 from models import TripCreate, FuelCreate, ServiceCreate, RepairCreate, GreasingCreate
 from helpers import make_crud
+import workflow
 
 router = APIRouter(tags=["operations"])
 
@@ -34,12 +35,21 @@ async def close_trip(trip_id: str, payload: dict = Body(...), user=Depends(requi
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
+    # WF-01: closing is a one-way transition. A trip already completed is not
+    # re-closed — that would recompute distance/odometer from a new closing_km
+    # and double-apply the odometer bump. Idempotent: return it unchanged.
+    if workflow.validate_transition(
+        workflow.TRIP_STATUS_WORKFLOW, trip.get("status"), "completed"
+    ) == "noop":
+        return trip
     closing_km = payload.get("closing_km")
     if closing_km is None or closing_km < trip["opening_km"]:
         raise HTTPException(status_code=400, detail="closing_km must be >= opening_km")
     distance = round(closing_km - trip["opening_km"], 1)
     await db.trips.update_one({"id": trip_id}, {"$set": {"closing_km": closing_km, "distance": distance, "status": "completed"}})
     await _update_vehicle_odometer(trip["vehicle_id"], closing_km)
+    await record_security_event("trip.close", user, target_id=trip_id,
+                                detail={"distance": distance})
     return await db.trips.find_one({"id": trip_id}, {"_id": 0})
 
 
@@ -78,22 +88,10 @@ make_crud(router, "greasings", "greasings", GreasingCreate, on_create=on_greasin
 
 
 # ---------- Repairs / Service Tickets ----------
-TICKET_FLOW = {
-    "open": ["under_review"],
-    "under_review": ["approved", "open"],  # under_review → open allowed for rejection
-    "approved": ["sent_for_repair"],
-    "sent_for_repair": ["in_repair"],
-    "in_repair": ["repaired"],
-    "repaired": ["closed"],
-    "closed": [],
-}
-
-STATUS_REQUIRES_ROLE = {
-    "approved": ("management", "admin"),
-    "closed": ("management", "admin"),
-    "open": ("management", "admin"),  # rejection back to open requires management+
-}
-
+# WF-01: the ticket state graph and per-state role rules moved to
+# workflow.REPAIR_WORKFLOW (the single source of truth for every workflow). Only
+# the per-stage timestamp/actor fields remain here, as they are repair-specific
+# presentation rather than transition rules.
 STAGE_FIELD_FILLED = {
     "under_review": ("reviewed_at", "reviewed_by"),
     "approved": ("approved_at", "approved_by"),
@@ -141,19 +139,14 @@ async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends
     # Legacy migration: if record still has old status, accept "reported" → "open"
     if current == "reported":
         current = "open"
-    allowed_next = TICKET_FLOW.get(current, [])
-    if new_status not in allowed_next:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot transition {current} → {new_status}",
-        )
-    required_roles = STATUS_REQUIRES_ROLE.get(new_status)
-    if required_roles and user.get("role") not in required_roles:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Status '{new_status}' requires Management or Admin",
-        )
-    updates = {"status": new_status}
+    # WF-01: the ticket state graph and its per-state role rules are now the
+    # shared engine's REPAIR_WORKFLOW. Optimistic-concurrency check: a caller may
+    # pass expected_version so two managers cannot both advance the same ticket.
+    workflow.check_version(repair, payload.get("expected_version"))
+    workflow.validate_transition(
+        workflow.REPAIR_WORKFLOW, current, new_status, role=user.get("role")
+    )
+    updates = {"status": new_status, "_version": workflow.next_version(repair)}
     field = STAGE_FIELD_FILLED.get(new_status)
     if field:
         from datetime import datetime, timezone
@@ -173,4 +166,6 @@ async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends
     if payload.get("rejection_reason"):
         updates["rejection_reason"] = payload["rejection_reason"]
     await db.repairs.update_one({"id": repair_id}, {"$set": updates})
+    await record_security_event("repair.transition", user, target_id=repair_id,
+                                detail={"from": current, "to": new_status})
     return await db.repairs.find_one({"id": repair_id}, {"_id": 0})

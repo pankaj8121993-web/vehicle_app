@@ -4,6 +4,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
 from auth import require_user, require_permission, MODULE_ACCESS
 from tenant_policy import reject_protected_fields
+import workflow
 
 
 def _check_module(user, module):
@@ -79,10 +80,21 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
     @router.put(f"/{path}/{{item_id}}")
     async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_permission(f"{perm}:update"))):
         reject_protected_fields(payload)
-        if user.get("role") == "test":
-            existing = await db[coll].find_one({"id": item_id}, {"_id": 0, "is_test_data": 1})
-            if not existing or not existing.get("is_test_data"):
-                raise HTTPException(status_code=403, detail="Test mode: cannot modify real records")
+        # WF-01: a generic update must not be a way around a workflow. If this
+        # collection's status is workflow-controlled and the payload changes it,
+        # the change is validated against the state graph (invalid → 409) before
+        # anything is written. Needs the existing record, so read it up front for
+        # workflow-controlled collections.
+        needs_existing = "status" in payload and coll in workflow.STATUS_WORKFLOWS
+        existing = None
+        if needs_existing or user.get("role") == "test":
+            existing = await db[coll].find_one({"id": item_id}, {"_id": 0})
+            if not existing:
+                raise HTTPException(status_code=404, detail="Not found")
+        if user.get("role") == "test" and not existing.get("is_test_data"):
+            raise HTTPException(status_code=403, detail="Test mode: cannot modify real records")
+        if needs_existing:
+            workflow.enforce_generic_status_change(coll, existing, payload, role=user.get("role"))
         res = await db[coll].update_one({"id": item_id}, {"$set": payload})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Not found")
