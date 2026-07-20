@@ -24,8 +24,8 @@ runbook before resuming any workstream.
 | TEN-01 | Tenant ownership / mass-assignment | **Merged** (PR #4, `d9ffc09`) | N/A |
 | FILE-01 | Tenant-scoped file security | **Merged** (PR #5, `ea489f9`) | N/A |
 | AUTH-01 | Secure session lifecycle | **Merged** (PR #6, `ffd465c`) | N/A |
-| AUTHZ-01 | Action-level permission engine | In progress — PR open | N/A |
-| FASTAG-01 | Demo-only simulation protection | Not started | N/A |
+| AUTHZ-01 | Action-level permission engine | **Merged** (PR #8, `e47db5a`) | N/A |
+| FASTAG-01 | Demo-only simulation protection | In progress — PR open | N/A |
 | WF-01 | Protected workflows | Not started | N/A |
 | TEN-TEST | Cross-tenant security matrix | In progress — PR open | N/A |
 | SEC-CLOSEOUT | Critical security release gate | Not started | N/A |
@@ -344,8 +344,9 @@ pairwise (two-org) isolation only.
 
 ## AUTHZ-01 — Action-level permission engine
 
-- **Status:** Repository work complete; PR open against `develop`.
-- **Branch:** `feature/authz-01-permission-engine`.
+- **Status:** **Merged into `develop`.**
+- **Branch:** `feature/authz-01-permission-engine` (deleted after merge).
+- **PR:** #8. **Merge commit:** `e47db5a`. **CI:** gitleaks pass.
 - **Implementation doc:** `docs/implementation/AUTHORIZATION.md`.
 - **Production impact:** None. No production data accessed.
 
@@ -386,6 +387,39 @@ fastag_sync still require_user (FASTAG-01).
 
 ---
 
+## FASTAG-01 — Demo-only FASTag simulation protection
+
+- **Status:** Repository work complete; PR open against `develop`.
+- **Branch:** `feature/fastag-01-demo-simulation`.
+- **Implementation doc:** `docs/implementation/FASTAG_SIMULATION.md`.
+- **Production impact:** None. No production data accessed.
+
+**Defect (P0):** `POST /fastag/sync/{vehicle_id}` was `require_user`, so any user
+in **any** organisation could fabricate 4–8 random toll transactions plus a
+recharge for a real vehicle and **overwrite its `fastag_balance` with a random
+number**. Non-idempotent — every click added more fake activity.
+
+**Fix (`fastag_simulation.py`):** fail closed off the demo org (requires both
+`is_demo` and `DEMO_ORG_ID`; a non-demo caller gets 403 before any write), plus
+the `fastag:simulate` permission (defence in depth). Idempotent via a batch key
+(replay returns the original result, writes nothing new). Balance is **computed**
+from the vehicle's transactions, never random. Bounded amounts/dates/size.
+Simulated rows carry `source="demo_simulation"`, distinct from manual imports and
+the old `auto_sync`. Each run is audited. Manual import (`POST /fastag`) and a
+(non-existent, fail-closed) live-provider path are explicitly separated.
+
+**Tests/checks:** 566 passed, 3 skipped (21 new + 1 matrix). Mutation-tested
+(disabling the demo guard fails both unit and real-HTTP layers). Ruff clean.
+Gitleaks clean. Live smoke: demo sync 200 with `replayed:true` on retry; real-org
+sync 403.
+
+**Remaining limitations:** simulated balance can go negative (deterministic, demo
+realism only); `fastag:simulate` is held by all acting roles with the demo-org
+check doing the real restriction; live-provider integration deliberately absent
+and must not reuse the simulation path when added.
+
+---
+
 ## Environment / tooling notes
 
 - GitHub CLI is authenticated as `pankaj8121993-web` with scopes
@@ -401,7 +435,7 @@ fastag_sync still require_user (FASTAG-01).
 
 ## Next target
 
-**FASTAG-01 — Demo-only simulation protection**, once AUTHZ-01 is merged.
+**WF-01 — Protected workflow transitions**, once FASTAG-01 is merged.
 
 TEN-TEST was deliberately run before AUTHZ-01: it validates the three merged
 stages against real cross-tenant traffic, so AUTHZ-01 and WF-01 build on a

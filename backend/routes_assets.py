@@ -1,11 +1,11 @@
-import random
 import uuid
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from database import db
-from auth import require_user, require_module
+from auth import require_user, require_module, require_permission, record_security_event
 from models import TyreCreate, TyreEventCreate, AccidentCreate, FastagTxnCreate, DowntimeCreate, ExpenseCreate
 from helpers import make_crud, gather_expenses, enrich
+import fastag_simulation
 
 router = APIRouter(tags=["assets"])
 
@@ -39,52 +39,61 @@ async def on_fastag_create(doc):
 make_crud(router, "fastag", "fastag_transactions", FastagTxnCreate, on_create=on_fastag_create, module="fastag")
 
 
-# SIMULATED Fastag auto-sync (no public NPCI/bank Fastag API exists).
-# Generates demo toll transactions + an authoritative balance. Swap with a real API later.
-TOLL_PLAZAS = ["Khed Shivapur Plaza", "Talegaon Plaza", "Anewadi Plaza", "Tasawade Plaza",
-               "Kini Plaza", "Vashi Plaza", "Charoti Plaza", "Dahisar Plaza"]
-
-
+# FASTAG-01: FASTag "sync" is a demo-only *simulation* — there is no public
+# NPCI/bank FASTag API. The guard, generation, idempotency and balance logic live
+# in fastag_simulation.py; this endpoint is the thin, fail-closed entry point.
 @router.post("/fastag/sync/{vehicle_id}")
-async def fastag_sync(vehicle_id: str, user=Depends(require_user)):
+async def fastag_sync(
+    vehicle_id: str,
+    idempotency_key: str = Query(None, alias="idempotency_key"),
+    user=Depends(require_permission("fastag:simulate")),
+):
+    # Fail closed off the demo organisation: a real tenant must never receive
+    # fabricated FASTag activity. Checked before any read or write.
+    fastag_simulation.assert_simulation_allowed(user)
+
+    # db.vehicles is tenant-scoped, so this only ever resolves a vehicle in the
+    # caller's (demo) organisation — a cross-tenant id simply 404s.
     vehicle = await db.vehicles.find_one({"id": vehicle_id}, {"_id": 0})
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     if not vehicle.get("fastag_number"):
         raise HTTPException(status_code=400, detail="Link a Fastag number to this vehicle first (edit the vehicle)")
-    now = datetime.now(timezone.utc)
-    txns = []
-    for _ in range(random.randint(4, 8)):
-        d = now - timedelta(days=random.randint(0, 30))
-        txns.append({
-            "id": str(uuid.uuid4()),
-            "vehicle_id": vehicle_id,
-            "txn_type": "toll",
-            "date": d.strftime("%Y-%m-%d"),
-            "toll_plaza": random.choice(TOLL_PLAZAS),
-            "amount": float(random.choice([45, 65, 85, 105, 140, 165, 210, 240, 330])),
-            "notes": None,
-            "source": "auto_sync",
-            "created_at": now.isoformat(),
-            "created_by": user["user_id"],
-        })
-    if random.random() < 0.7:
-        d = now - timedelta(days=random.randint(0, 25))
-        txns.append({
-            "id": str(uuid.uuid4()),
-            "vehicle_id": vehicle_id,
-            "txn_type": "recharge",
-            "date": d.strftime("%Y-%m-%d"),
-            "toll_plaza": None,
-            "amount": float(random.choice([500, 1000, 2000])),
-            "notes": "Auto recharge",
-            "source": "auto_sync",
-            "created_at": now.isoformat(),
-            "created_by": user["user_id"],
-        })
+
+    batch_key = fastag_simulation._batch_key(vehicle_id, idempotency_key)
+
+    # Idempotency / safe replay: if this batch already ran, return the original
+    # result and write nothing new. Only meaningful when a key was supplied.
+    if idempotency_key:
+        existing = await db.fastag_transactions.find(
+            {"vehicle_id": vehicle_id, "sim_batch": batch_key}, {"_id": 0}
+        ).to_list(100)
+        if existing:
+            all_txns = await db.fastag_transactions.find(
+                {"vehicle_id": vehicle_id}, {"_id": 0}
+            ).to_list(5000)
+            return {
+                "synced_transactions": len(existing),
+                "balance": fastag_simulation.computed_balance(all_txns),
+                "simulated": True,
+                "replayed": True,
+            }
+
+    txns = fastag_simulation.build_simulated_batch(vehicle_id, user, batch_key)
     await db.fastag_transactions.insert_many([{**t} for t in txns])
-    new_balance = round(random.uniform(250, 2800), 2)
+
+    # Balance is computed from the vehicle's transactions, never a random number,
+    # so a replay is stable and the figure is not fabricated out of thin air.
+    all_txns = await db.fastag_transactions.find(
+        {"vehicle_id": vehicle_id}, {"_id": 0}
+    ).to_list(5000)
+    new_balance = fastag_simulation.computed_balance(all_txns)
     await db.vehicles.update_one({"id": vehicle_id}, {"$set": {"fastag_balance": new_balance}})
+
+    await record_security_event(
+        "fastag.simulate", user, target_id=vehicle_id,
+        detail={"generated": len(txns), "batch": batch_key},
+    )
     return {"synced_transactions": len(txns), "balance": new_balance, "simulated": True}
 
 

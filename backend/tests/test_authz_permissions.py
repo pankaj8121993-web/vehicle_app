@@ -209,11 +209,9 @@ def _mutating_endpoints_without_permission():
         # Self-service, guarded by require_user + own-session ownership.
         "change_password", "revoke_session", "revoke_all_sessions",
         "dismiss_checklist",
-        # FASTAG-01 will lock this to the demo org; tracked there.
-        "fastag_sync",
     }
     offenders = []
-    for modname in _ROUTE_MODULES:
+    for modname in _ROUTE_MODULES + ["routes_assets"]:
         mod = importlib.import_module(modname)
         src = inspect.getsource(mod)
         tree = ast.parse(src)

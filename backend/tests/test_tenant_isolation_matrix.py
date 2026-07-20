@@ -370,6 +370,20 @@ def test_cross_tenant_id_does_not_disclose_existence(res, tenants):
     assert real.json() == fake.json()
 
 
+# --- Workflow actions (cross-tenant) ------------------------------------------
+
+def test_fastag_sync_is_refused_for_a_real_org(tenants):
+    """FASTAG-01: the simulation is demo-only, so neither real org in this matrix
+    can run it — against its own vehicle or another's. It never fabricates
+    activity in a real tenant."""
+    a_vehicle = tenants["records"]["vehicles"]["a"]["id"]
+    b_vehicle = tenants["records"]["vehicles"]["b"]["id"]
+    own = _run(tenants["a"].post(f"/api/fastag/sync/{a_vehicle}"))
+    assert own.status_code == 403, f"real-org self sync -> {own.status_code}"
+    cross = _run(tenants["a"].post(f"/api/fastag/sync/{b_vehicle}"))
+    assert cross.status_code in (403, 404), f"cross-tenant sync -> {cross.status_code}"
+
+
 # --- Aggregate / read-only surfaces -------------------------------------------
 
 def test_search_does_not_cross_tenants(tenants):

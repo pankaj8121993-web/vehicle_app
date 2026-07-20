@@ -377,6 +377,25 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 >   limits (predicate ready, no product rule), record-state conditions (WF-01),
 >   fastag_sync lockdown (FASTAG-01).
 
+> **FASTAG-01 progress (repository work complete; PR open).**
+> Delivered on `feature/fastag-01-demo-simulation`:
+> - **Fixed a P0:** `POST /fastag/sync/{vehicle_id}` was `require_user`, so any user in
+>   any organisation could fabricate 4-8 random toll transactions plus a recharge for a
+>   real vehicle and **overwrite its `fastag_balance` with `random.uniform(250, 2800)`**.
+> - `backend/fastag_simulation.py`: simulation fails closed off the canonical demo org
+>   (requires both `is_demo` and `DEMO_ORG_ID`; non-demo callers get 403 before any
+>   write) and requires the `fastag:simulate` permission. Idempotent via a batch key
+>   (replay writes nothing new); balance is **computed** from the vehicle's transactions,
+>   never random; amounts/dates/size bounded; simulated rows marked
+>   `source="demo_simulation"`; each run audited.
+> - Demo simulation, manual import (`POST /fastag`) and a fail-closed (non-existent)
+>   live-provider path are explicitly separated.
+> - Added `docs/implementation/FASTAG_SIMULATION.md` and 21 tests (+1 in the matrix).
+>   Full suite: 566 passed, 3 skipped. Mutation-tested; live-smoke-verified (real-org
+>   sync 403, demo replay idempotent).
+> - **NOT done here:** live-provider integration (deliberately absent, must not reuse the
+>   simulation path).
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1366,7 +1385,7 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 | P0 | FILE-01 | Tenant-scope files and downloads | Backend | Repository work complete on `feature/file-01-tenant-file-security` (PR open) — `files` tenant-scoped, per-uploader ownership migration, type/signature allowlist, safe download headers, 76 tests. Fixed a live cross-tenant file-disclosure defect. Exceptions: no malware scanning, no signed URLs, no linked-record ACL (AUTHZ-01). |
 | P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Repository work complete on `feature/auth-01-secure-sessions` (PR open) — hashed tokens, HttpOnly cookies, double-submit CSRF, idle+absolute expiry, rotation, revoke one/all, TTL indexes, login throttling, CORS allowlist, 56 tests. Fixed plaintext session storage and unbounded sliding expiry. Exception: no self-service password reset (no mail transport). |
 | P0 | AUTHZ-01 | Action-level permission engine and endpoint inventory | Backend | Repository work complete on `feature/authz-01-permission-engine` (PR open) — canonical `resource:action` catalogue, role→permission map, `require_permission` on every mutating endpoint (AST-guarded), platform/org separation, role-change audit + revocation, 52 tests, mutation-tested. Behaviour preserved (492 prior tests green). |
-| P0 | FASTAG-01 | Disable simulated sync in live organisations | Backend | Not started |
+| P0 | FASTAG-01 | Disable simulated sync in live organisations | Backend | Repository work complete on `feature/fastag-01-demo-simulation` (PR open) — simulation fails closed off the demo org (403, no writes), idempotent, computed (not random) balance, audited; demo/manual/live-provider paths separated. 21 tests, mutation-tested. Live-verified real-org 403. |
 | P0 | WF-01 | Protect status/approval/payment fields from generic updates | Backend | Not started |
 | P1 | TEN-TEST | Automated cross-tenant test suite | QA/Security | Repository work complete on `feature/ten-test-isolation-matrix` (PR open) — 188 real-HTTP two-org isolation tests, registry-driven so new modules must register, mutation-tested. Found and fixed two real defects in `auth.py`. |
 | P1 | BUG-01 | Row navigation and actions | Frontend | Not started |
