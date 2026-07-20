@@ -396,6 +396,24 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 > - **NOT done here:** live-provider integration (deliberately absent, must not reuse the
 >   simulation path).
 
+> **WF-01 progress (repository work complete; PR open).**
+> Delivered on `feature/wf-01-workflow-transitions`:
+> - **Fixed a defect class:** generic CRUD could drive operational state directly —
+>   un-dispose a vehicle, reopen a closed downtime, jump a repair open→closed skipping
+>   approval, or re-close a completed trip (recomputing distance/odometer).
+> - `backend/workflow.py`: explicit state graphs (repairs, vehicles, drivers, downtime,
+>   trips) + one validator every status change runs through. Invalid edge → 409; terminal
+>   states can't be left; disposal/exit role-gated; idempotent; optimistic concurrency via
+>   `_version`; every transition audited. Generic updates validate status changes before
+>   writing, so a generic PUT cannot bypass the workflow.
+> - **No genuine workflow, documented not invented:** no expense-approval, payment or
+>   generic-approval workflow exists (only the repair `approved` state); tyre/FASTag status
+>   is a label; odometer is a monotonic invariant.
+> - Added `docs/implementation/WORKFLOWS.md` and 35 tests. Full suite: 601 passed, 3
+>   skipped. Mutation-tested; live-verified (dispose 200, un-dispose 409).
+> - **NOT done here:** rejecting a lower odometer on generic update (data-quality gap);
+>   `_version` wired only to the repair transition; no reversal path for terminal states.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
@@ -1386,7 +1404,7 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 | P0 | AUTH-01 | Secure cookie session, CSRF, TTL, device management | Full stack | Repository work complete on `feature/auth-01-secure-sessions` (PR open) — hashed tokens, HttpOnly cookies, double-submit CSRF, idle+absolute expiry, rotation, revoke one/all, TTL indexes, login throttling, CORS allowlist, 56 tests. Fixed plaintext session storage and unbounded sliding expiry. Exception: no self-service password reset (no mail transport). |
 | P0 | AUTHZ-01 | Action-level permission engine and endpoint inventory | Backend | Repository work complete on `feature/authz-01-permission-engine` (PR open) — canonical `resource:action` catalogue, role→permission map, `require_permission` on every mutating endpoint (AST-guarded), platform/org separation, role-change audit + revocation, 52 tests, mutation-tested. Behaviour preserved (492 prior tests green). |
 | P0 | FASTAG-01 | Disable simulated sync in live organisations | Backend | Repository work complete on `feature/fastag-01-demo-simulation` (PR open) — simulation fails closed off the demo org (403, no writes), idempotent, computed (not random) balance, audited; demo/manual/live-provider paths separated. 21 tests, mutation-tested. Live-verified real-org 403. |
-| P0 | WF-01 | Protect status/approval/payment fields from generic updates | Backend | Not started |
+| P0 | WF-01 | Protect status/approval/payment fields from generic updates | Backend | Repository work complete on `feature/wf-01-workflow-transitions` (PR open) — shared transition engine (state graphs, role-gated, idempotent, versioned, audited); generic updates cannot bypass workflows; no-workflow features documented not invented. 35 tests, mutation-tested. |
 | P1 | TEN-TEST | Automated cross-tenant test suite | QA/Security | Repository work complete on `feature/ten-test-isolation-matrix` (PR open) — 188 real-HTTP two-org isolation tests, registry-driven so new modules must register, mutation-tested. Found and fixed two real defects in `auth.py`. |
 | P1 | BUG-01 | Row navigation and actions | Frontend | Not started |
 | P1 | BUG-02 | Profile/onboarding performance profiling and fixes | Frontend | Not started |
