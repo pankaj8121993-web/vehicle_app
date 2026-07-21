@@ -4,7 +4,7 @@
 working sessions. Read this together with `MASTER_PLAN.md` and the relevant
 runbook before resuming any workstream.
 
-**Last updated:** 16 July 2026
+**Last updated:** 21 July 2026
 
 > **Rule of this document:** preparation and tooling are never recorded as
 > production execution. A workstream that has shipped code but has not been run
@@ -27,8 +27,16 @@ runbook before resuming any workstream.
 | AUTHZ-01 | Action-level permission engine | **Merged** (PR #8, `e47db5a`) | N/A |
 | FASTAG-01 | Demo-only simulation protection | **Merged** (PR #9, `b4bb793`) | N/A |
 | WF-01 | Protected workflows | **Merged** (PR #10, `79c27dd`) | N/A |
-| TEN-TEST | Cross-tenant security matrix | In progress — PR open | N/A |
-| SEC-CLOSEOUT | Critical security release gate | In progress — PR open | N/A |
+| TEN-TEST | Cross-tenant security matrix | **Merged** (PR #7, `dc4d3c5`) | N/A |
+| SEC-CLOSEOUT | Critical security release gate | **Merged** (PR #11, `251d0be`) | N/A |
+
+> **Scope frozen (21 July 2026).** The repository-side critical security programme
+> is complete: AUTHZ-01, FASTAG-01, WF-01 and SEC-CLOSEOUT were implemented, tested
+> and merged (PRs #8-#11) alongside the earlier workstreams. A final consolidation
+> branch (`feature/security-final-closeout`) removed lint debt left by the FASTAG-01
+> refactor and aligned the release-gate conclusion wording. No new security controls
+> were added; none were needed. The programme is now closed — remaining work is the
+> operator-led SEC-004/SEC-005.
 
 ---
 

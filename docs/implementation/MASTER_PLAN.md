@@ -425,6 +425,17 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 >   operations BLOCKED pending SEC-004 and SEC-005; production release **NOT APPROVED**.
 > - Full suite: 606 passed, 3 skipped.
 
+> **Security programme frozen (21 July 2026).** The repository-side critical security
+> programme is **complete**: SEC-001/002/003, TEN-01, FILE-01, AUTH-01, TEN-TEST,
+> AUTHZ-01, FASTAG-01, WF-01 and SEC-CLOSEOUT are all merged into `develop`. A final
+> consolidation branch (`feature/security-final-closeout`) closed lint debt from the
+> FASTAG-01 refactor and finalised the release-gate conclusion. No further security
+> phase is planned. The only remaining critical work is operator-led: **SEC-004**
+> (production credential rotation) then **SEC-005** (Git-history cleanup). Release
+> conclusion: repository security hardening Complete; production security operations
+> Incomplete; production release Blocked pending SEC-004 and SEC-005. See
+> `docs/implementation/SECURITY_RELEASE_GATE.md`.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |

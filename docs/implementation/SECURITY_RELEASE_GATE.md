@@ -11,10 +11,28 @@
 ## Release decision
 
 ```
-Repository security programme:   COMPLETE
-Production security operations:   BLOCKED pending SEC-004 and SEC-005
-Production release decision:      NOT APPROVED
+Repository security hardening:   Complete
+Production security operations:  Incomplete
+Production release approval:     Blocked pending SEC-004 and SEC-005
 ```
+
+### Repository controls completed
+
+- Secure bootstrap (SEC-001)
+- Credential-rotation tooling (SEC-002)
+- Secret scanning (SEC-003)
+- Tenant ownership (TEN-01)
+- File isolation (FILE-01)
+- Secure authentication and sessions (AUTH-01)
+- Tenant-isolation matrix (TEN-TEST)
+- Minimum action authorisation (AUTHZ-01)
+- Demo-only FASTag simulation (FASTAG-01)
+- Critical workflow-field protection (WF-01)
+
+### Operational controls incomplete
+
+- SEC-004 — production credential rotation and session revocation
+- SEC-005 — historical-secret removal from Git history
 
 Every repository-side P0 control below is implemented, tested and merged into
 `develop`. Two controls require a **live production operator environment** that
