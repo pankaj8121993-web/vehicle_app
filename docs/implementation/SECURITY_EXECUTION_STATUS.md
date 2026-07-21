@@ -141,13 +141,27 @@ with production network reachability, following
 5. Ideally a restored production copy in an isolated environment, so the runbook
    can be rehearsed against realistic data before touching production.
 
-### Repository-side work still open for SEC-004
+### SEC-004 Operator Pack (repository-side preparation — COMPLETE)
 
-- Rehearsal harness that exercises the runbook end-to-end against an isolated,
-  clearly-named throwaway database (not `test_database`).
-- Deployment-specific command appendix in `CREDENTIAL_ROTATION.md`, written once
-  the production facts above are confirmed.
-- Non-secret evidence-log template.
+All safe repository-side preparation is now delivered so an authorised operator
+can execute SEC-004 without further development help:
+
+- `docs/implementation/SEC004_OPERATOR_CHECKLIST.md` — strict step-by-step
+  production sequence with prominent stop-and-rollback conditions.
+- `docs/implementation/SEC004_DRY_RUN_GUIDE.md` — how the tool, manifest,
+  recovery-admin rules, session revocation and audit behave (synthetic examples).
+- `docs/implementation/SEC004_EVIDENCE_LOG_TEMPLATE.md` — non-secret evidence
+  log (no field for any password/hash/token/URI/key).
+- `scripts/rehearse_sec004.sh` — rehearses the tool end-to-end against a
+  uniquely-named throwaway database, seeding synthetic orgs/legacy/demo/recovery
+  accounts and sessions, asserting correct rotate/deactivate/skip/revocation/
+  demo-isolation/last-admin/audit behaviour, then dropping the DB (cleanup trap).
+  Refuses production-like targets and `test_database`, takes no connection-string
+  argument, and never prints `MONGO_URL`. Covered by
+  `backend/tests/test_sec004_rehearsal.py`.
+
+**Still NOT executed:** the live production rotation itself — an operator-led
+activity. The pack enables it; it does not perform it.
 
 ### Production impact to date
 
