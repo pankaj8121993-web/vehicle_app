@@ -5,6 +5,15 @@ from database import db
 from auth import require_user, require_permission, MODULE_ACCESS
 from tenant_policy import reject_protected_fields
 import workflow
+import invariants
+from references import validate_references
+
+
+# DI-01: repair ticket states in which the cost figure is authorised and locked
+# against generic edits (everything from approval onward).
+REPAIR_COST_LOCKED_STATUSES = {
+    "approved", "sent_for_repair", "in_repair", "repaired", "closed",
+}
 
 
 def _check_module(user, module):
@@ -67,6 +76,11 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
     @router.post(f"/{path}")
     async def create_item(payload: CreateModel, user=Depends(require_permission(f"{perm}:create"))):
         doc = payload.model_dump()
+        # DI-01: canonical invariants (money precision/sign, quantity, odometer,
+        # cross-field ordering) run before any derived value is computed, and
+        # referential integrity (same-org, in-service) before the record lands.
+        invariants.enforce_record_invariants(coll, doc)
+        await validate_references(coll, doc)
         doc["id"] = str(uuid.uuid4())
         doc["created_at"] = datetime.now(timezone.utc).isoformat()
         doc["created_by"] = user["user_id"]
@@ -80,12 +94,23 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
     @router.put(f"/{path}/{{item_id}}")
     async def update_item(item_id: str, payload: dict = Body(...), user=Depends(require_permission(f"{perm}:update"))):
         reject_protected_fields(payload)
+        # DI-01: the same numeric/ordering invariants apply to a partial update
+        # body, so an edit cannot re-introduce a negative amount or bad odometer
+        # that a create would have refused.
+        invariants.enforce_record_invariants(coll, payload)
         # WF-01: a generic update must not be a way around a workflow. If this
         # collection's status is workflow-controlled and the payload changes it,
         # the change is validated against the state graph (invalid → 409) before
         # anything is written. Needs the existing record, so read it up front for
         # workflow-controlled collections.
-        needs_existing = "status" in payload and coll in workflow.STATUS_WORKFLOWS
+        # DI-01: a repair's cost is also locked once the ticket is approved — an
+        # approved/paid financial figure must not be silently rewritten through a
+        # generic PUT; the dedicated ticket action carries authorised cost changes.
+        di01_cost_lock = coll == "repairs" and "cost" in payload
+        needs_existing = (
+            ("status" in payload and coll in workflow.STATUS_WORKFLOWS)
+            or di01_cost_lock
+        )
         existing = None
         if needs_existing or user.get("role") == "test":
             existing = await db[coll].find_one({"id": item_id}, {"_id": 0})
@@ -93,7 +118,15 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
                 raise HTTPException(status_code=404, detail="Not found")
         if user.get("role") == "test" and not existing.get("is_test_data"):
             raise HTTPException(status_code=403, detail="Test mode: cannot modify real records")
-        if needs_existing:
+        if di01_cost_lock and existing.get("status") in REPAIR_COST_LOCKED_STATUSES:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This ticket is approved; its cost is locked. Record cost "
+                    "through the ticket action, not a generic edit."
+                ),
+            )
+        if "status" in payload and coll in workflow.STATUS_WORKFLOWS:
             workflow.enforce_generic_status_change(coll, existing, payload, role=user.get("role"))
         res = await db[coll].update_one({"id": item_id}, {"$set": payload})
         if res.matched_count == 0:

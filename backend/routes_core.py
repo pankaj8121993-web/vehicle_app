@@ -5,9 +5,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile
 from database import db
 from auth import require_user, require_permission, require_module, record_security_event
 from models import VehicleCreate, DriverCreate, DocumentCreate
-from helpers import make_crud, enrich, gather_expenses
+from helpers import make_crud, gather_expenses
 from tenant_policy import reject_protected_fields
 import file_policy
+import invariants
+from references import validate_references
 import workflow
 from storage import put_object, get_object, APP_NAME
 
@@ -60,6 +62,7 @@ async def list_vehicles(request: Request, user=Depends(require_user)):
 @router.post("/vehicles")
 async def create_vehicle(payload: VehicleCreate, user=Depends(require_permission("vehicles:create"))):
     doc = payload.model_dump()
+    invariants.enforce_record_invariants("vehicles", doc)
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["created_by"] = user["user_id"]
@@ -72,6 +75,7 @@ async def create_vehicle(payload: VehicleCreate, user=Depends(require_permission
 @router.put("/vehicles/{vid}")
 async def update_vehicle(vid: str, payload: dict = Body(...), user=Depends(require_permission("vehicles:update"))):
     reject_protected_fields(payload)
+    invariants.enforce_record_invariants("vehicles", payload)
     existing = await db.vehicles.find_one({"id": vid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Vehicle not found")
@@ -359,6 +363,7 @@ async def list_drivers(request: Request, user=Depends(require_module("drivers"))
 @router.post("/drivers")
 async def create_driver(payload: DriverCreate, user=Depends(require_permission("drivers:create"))):
     doc = payload.model_dump()
+    await validate_references("drivers", doc)
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["created_by"] = user["user_id"]
@@ -371,6 +376,7 @@ async def create_driver(payload: DriverCreate, user=Depends(require_permission("
 @router.put("/drivers/{did}")
 async def update_driver(did: str, payload: dict = Body(...), user=Depends(require_permission("drivers:update"))):
     reject_protected_fields(payload)
+    await validate_references("drivers", payload)
     existing = await db.drivers.find_one({"id": did}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Driver not found")

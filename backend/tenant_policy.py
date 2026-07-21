@@ -94,8 +94,16 @@ WORKFLOW_FIELDS = frozenset({
 
 # System-calculated values. Derived server-side from other records; a client
 # value would silently corrupt finance and reporting.
+#
+# DI-01 extends this with the per-record computed fields the domain hooks own:
+# a trip's ``distance`` (closing_km − opening_km), a fuel entry's ``mileage`` and
+# ``fuel_cost_per_km``, and a downtime's ``days``. These were previously absent,
+# so a generic ``PUT /fuel/{id}`` with ``{"mileage": 999}`` was written verbatim,
+# overriding the value the fuel hook computes and corrupting every mileage
+# report. They are server-owned; a client that supplies one is rejected.
 DERIVED_FIELDS = frozenset({
     "total", "totals", "balance", "computed_total",
+    "distance", "mileage", "fuel_cost_per_km", "days",
 })
 
 # The full set rejected on generic create/update request bodies.
