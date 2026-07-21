@@ -3,6 +3,7 @@ from database import db
 from auth import require_permission, record_security_event
 from models import TripCreate, FuelCreate, ServiceCreate, RepairCreate, GreasingCreate
 from helpers import make_crud
+import invariants
 import workflow
 
 router = APIRouter(tags=["operations"])
@@ -43,7 +44,12 @@ async def close_trip(trip_id: str, payload: dict = Body(...), user=Depends(requi
     ) == "noop":
         return trip
     closing_km = payload.get("closing_km")
-    if closing_km is None or closing_km < trip["opening_km"]:
+    if closing_km is None:
+        raise HTTPException(status_code=400, detail="closing_km must be >= opening_km")
+    # DI-01: validate the reading itself (finite, non-negative, bounded) before
+    # the ordering check, so inf/NaN cannot slip past the comparison.
+    closing_km = invariants.odometer(closing_km, field="closing_km", allow_none=False)
+    if closing_km < trip["opening_km"]:
         raise HTTPException(status_code=400, detail="closing_km must be >= opening_km")
     distance = round(closing_km - trip["opening_km"], 1)
     await db.trips.update_one({"id": trip_id}, {"$set": {"closing_km": closing_km, "distance": distance, "status": "completed"}})
@@ -156,7 +162,8 @@ async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends
             updates[user_field] = user.get("name") or user.get("full_name") or user.get("username")
     # Pass-through optional fields
     if payload.get("cost") is not None:
-        updates["cost"] = payload["cost"]
+        # DI-01: the authorised cost still passes canonical money validation.
+        updates["cost"] = invariants.money(payload["cost"], field="cost")
     if payload.get("vendor"):
         updates["vendor"] = payload["vendor"]
     if payload.get("vendor_id"):

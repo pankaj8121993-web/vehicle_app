@@ -7,6 +7,7 @@ from database import db
 from auth import require_permission, require_module
 from helpers import gather_expenses
 from tenant_policy import reject_protected_fields
+import invariants
 
 router = APIRouter(tags=["expenses"])
 
@@ -207,8 +208,9 @@ async def create_budget(payload: dict = Body(...), user=Depends(require_permissi
         raise HTTPException(status_code=400, detail="Invalid budget category")
     if not month or len(month) != 7:
         raise HTTPException(status_code=400, detail="Month must be in YYYY-MM format")
-    if not isinstance(amount, (int, float)) or amount <= 0:
+    if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be a positive number")
+    amount = invariants.money(amount, field="amount", allow_none=False)
     existing = await db.budgets.find_one({"category": category, "month": month}, {"_id": 0})
     if existing:
         raise HTTPException(status_code=400, detail=f"A {category} budget already exists for {month}")
@@ -223,8 +225,9 @@ async def create_budget(payload: dict = Body(...), user=Depends(require_permissi
 async def update_budget(bid: str, payload: dict = Body(...), user=Depends(require_permission("budgets:update"))):
     reject_protected_fields(payload)
     amount = payload.get("amount")
-    if not isinstance(amount, (int, float)) or amount <= 0:
+    if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be a positive number")
+    amount = invariants.money(amount, field="amount", allow_none=False)
     res = await db.budgets.update_one({"id": bid}, {"$set": {"amount": amount}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Budget not found")

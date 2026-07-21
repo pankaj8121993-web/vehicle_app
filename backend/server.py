@@ -140,6 +140,9 @@ async def startup():
     # Ticket system migrations (Checkpoint 4) — idempotent
     await _migrate_repair_statuses()
     await _backfill_ticket_numbers()
+    # DI-01: organisation-scoped uniqueness. Runs after the backfills so
+    # ticket_number is populated before its unique index is attempted.
+    await _ensure_integrity_indexes()
 
 
 # FILE-01: files are excluded from the blanket default-org backfill below.
@@ -257,6 +260,42 @@ async def _ensure_indexes():
         await raw_db.login_attempts.create_index([("ip", 1), ("at", -1)])
     except Exception as e:
         logger.warning(f"Index creation issue: {e}")
+
+
+# DI-01: organisation-scoped uniqueness indexes. Each is a compound index on
+# (org_id, <natural key>) so the same vehicle number / tyre serial / ticket
+# number can exist in different organisations but never twice within one. Built
+# with a partial filter so records missing the key (legacy/optional) do not
+# collide on null.
+#
+# Created best-effort and independently: on a database that already holds a
+# duplicate, the unique build raises, and we log a warning and continue rather
+# than crash startup. The DI-04 integrity scanner reports those duplicates so an
+# operator can resolve them; only then will the index build succeed. Nothing
+# here deletes or rewrites data.
+_INTEGRITY_INDEXES = [
+    ("vehicles", [("org_id", 1), ("vehicle_number", 1)], "uniq_org_vehicle_number",
+     {"vehicle_number": {"$type": "string"}}),
+    ("tyres", [("org_id", 1), ("tyre_number", 1)], "uniq_org_tyre_number",
+     {"tyre_number": {"$type": "string"}}),
+    ("repairs", [("org_id", 1), ("ticket_number", 1)], "uniq_org_ticket_number",
+     {"ticket_number": {"$type": "string"}}),
+]
+
+
+async def _ensure_integrity_indexes():
+    for coll, keys, name, partial in _INTEGRITY_INDEXES:
+        try:
+            await raw_db[coll].create_index(
+                keys, name=name, unique=True,
+                partialFilterExpression=partial,
+            )
+        except Exception as e:
+            logger.warning(
+                "DI-01: could not build unique index %s on %s (likely existing "
+                "duplicates — run check_data_integrity.py to find them): %s",
+                name, coll, e,
+            )
 
 
 async def _migrate_repair_statuses():
