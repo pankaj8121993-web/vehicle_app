@@ -1,8 +1,7 @@
-import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from database import db
-from auth import require_user, require_module, require_permission, record_security_event
+from auth import require_module, require_permission, record_security_event
 from models import TyreCreate, TyreEventCreate, AccidentCreate, FastagTxnCreate, DowntimeCreate, ExpenseCreate
 from helpers import make_crud, gather_expenses, enrich
 import fastag_simulation
