@@ -425,6 +425,13 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 >   operations BLOCKED pending SEC-004 and SEC-005; production release **NOT APPROVED**.
 > - Full suite: 606 passed, 3 skipped.
 
+> **SEC-004 Operator Pack ready (21 July 2026).** All safe repository-side SEC-004
+> preparation is complete: `docs/implementation/SEC004_OPERATOR_CHECKLIST.md`,
+> `SEC004_DRY_RUN_GUIDE.md`, `SEC004_EVIDENCE_LOG_TEMPLATE.md` and
+> `scripts/rehearse_sec004.sh` (rehearsed end-to-end against a disposable synthetic
+> database; refuses production-like targets and never prints the connection string).
+> The live production rotation remains operator-led and NOT executed.
+>
 > **Security programme frozen (21 July 2026).** The repository-side critical security
 > programme is **complete**: SEC-001/002/003, TEN-01, FILE-01, AUTH-01, TEN-TEST,
 > AUTHZ-01, FASTAG-01, WF-01 and SEC-CLOSEOUT are all merged into `develop`. A final
