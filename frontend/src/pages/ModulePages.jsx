@@ -26,43 +26,84 @@ export const PageHeader = ({ title, subtitle }) => (
   </div>
 );
 
-// ---- Trip close action ----
-export const CloseTripAction = (row, refresh) => {
-  if (row.status !== "ongoing") return null;
-  return <CloseTripButton row={row} refresh={refresh} />;
+// ---- Trip lifecycle actions (OPS-01) ----
+// Every button below calls a dedicated backend action (dispatch / close /
+// finalize / cancel) — never a generic status write, which the API refuses.
+const patchTrip = async (id, action, body, okMsg, refresh) => {
+  try {
+    await api.patch(`/trips/${id}/${action}`, body || {});
+    toast.success(okMsg);
+    refresh();
+  } catch (err) {
+    toast.error(err.response?.data?.detail ? String(err.response.data.detail) : `Failed to ${action} trip`);
+  }
 };
 
-const CloseTripButton = ({ row, refresh }) => {
-  const [open, setOpen] = useState(false);
-  const [closingKm, setClosingKm] = useState("");
+export const TripLifecycleActions = (row, refresh) => <TripActions row={row} refresh={refresh} />;
+// Backward-compatible alias — VehicleProfile/DriverProfile import this name.
+export const CloseTripAction = TripLifecycleActions;
 
-  const close = async () => {
-    try {
-      await api.patch(`/trips/${row.id}/close`, { closing_km: parseFloat(closingKm) });
-      toast.success("Trip closed");
-      setOpen(false);
-      refresh();
-    } catch (err) {
-      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Failed to close trip");
-    }
+const btnCls = "h-7 rounded-none px-2 text-xs";
+
+const TripActions = ({ row, refresh }) => {
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [closingKm, setClosingKm] = useState("");
+  const [reason, setReason] = useState("");
+  const s = row.status;
+
+  const doClose = async () => {
+    await patchTrip(row.id, "close", { closing_km: parseFloat(closingKm) }, "Trip completed", refresh);
+    setCloseOpen(false);
+  };
+  const doCancel = async () => {
+    await patchTrip(row.id, "cancel", { reason }, "Trip cancelled", refresh);
+    setCancelOpen(false);
   };
 
   return (
-    <>
-      <Button data-testid={`close-trip-${row.id}`} variant="outline" size="sm" className="h-7 rounded-none border-green-300 px-2 text-xs text-green-700 hover:bg-green-50" onClick={() => setOpen(true)}>
-        <Flag className="mr-1 h-3 w-3" /> Close
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+    <div className="flex flex-wrap gap-1">
+      {s === "assigned" && (
+        <Button data-testid={`dispatch-trip-${row.id}`} variant="outline" size="sm"
+          className={`${btnCls} border-blue-300 text-blue-700 hover:bg-blue-50`}
+          onClick={() => patchTrip(row.id, "dispatch", {}, "Trip dispatched", refresh)}>Dispatch</Button>
+      )}
+      {s === "ongoing" && (
+        <Button data-testid={`close-trip-${row.id}`} variant="outline" size="sm"
+          className={`${btnCls} border-green-300 text-green-700 hover:bg-green-50`}
+          onClick={() => setCloseOpen(true)}><Flag className="mr-1 h-3 w-3" /> Complete</Button>
+      )}
+      {(s === "completed" || s === "settlement_pending") && (
+        <Button data-testid={`finalize-trip-${row.id}`} variant="outline" size="sm"
+          className={`${btnCls} border-slate-400 text-slate-700 hover:bg-slate-100`}
+          onClick={() => patchTrip(row.id, "finalize", {}, "Trip closed out", refresh)}>Close out</Button>
+      )}
+      {["planned", "assigned", "ongoing"].includes(s) && (
+        <Button data-testid={`cancel-trip-${row.id}`} variant="outline" size="sm"
+          className={`${btnCls} border-red-300 text-red-700 hover:bg-red-50`}
+          onClick={() => setCancelOpen(true)}>Cancel</Button>
+      )}
+      <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
         <DialogContent className="rounded-none sm:max-w-sm">
-          <DialogHeader><DialogTitle>Close Trip — Enter Closing KM</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Complete Trip — Enter Closing KM</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <Label className="text-xs font-semibold uppercase text-slate-500">Closing Odometer (KM)</Label>
             <Input data-testid="close-trip-km-input" type="number" value={closingKm} onChange={(e) => setClosingKm(e.target.value)} className="rounded-none" />
-            <Button data-testid="close-trip-confirm" onClick={close} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Close Trip</Button>
+            <Button data-testid="close-trip-confirm" onClick={doClose} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Complete Trip</Button>
           </div>
         </DialogContent>
       </Dialog>
-    </>
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent className="rounded-none sm:max-w-sm">
+          <DialogHeader><DialogTitle>Cancel Trip</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold uppercase text-slate-500">Reason (optional)</Label>
+            <Input data-testid="cancel-trip-reason" value={reason} onChange={(e) => setReason(e.target.value)} className="rounded-none" />
+            <Button data-testid="cancel-trip-confirm" onClick={doCancel} className="w-full rounded-none bg-red-700 hover:bg-red-800">Cancel Trip</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 };
 
@@ -83,8 +124,8 @@ export const TripsPage = () => {
     <div><PageHeader title="Trip Management" subtitle="Record and monitor every vehicle movement" />
       <PeriodFilter testIdPrefix="trips-period" onChange={setRange} />
       <StatusTabs testIdPrefix="trips" value={status} onChange={setStatus}
-        tabs={[{ value: "", label: "All" }, { value: "ongoing", label: "Ongoing" }, { value: "completed", label: "Completed" }]} />
-      <CrudModule {...tripConfig} fixedFilters={filters} rowActions={CloseTripAction} /></div>
+        tabs={[{ value: "", label: "All" }, { value: "planned", label: "Planned" }, { value: "assigned", label: "Assigned" }, { value: "ongoing", label: "Ongoing" }, { value: "completed", label: "Completed" }, { value: "closed", label: "Closed" }, { value: "cancelled", label: "Cancelled" }]} />
+      <CrudModule {...tripConfig} fixedFilters={filters} rowActions={TripLifecycleActions} /></div>
   );
 };
 

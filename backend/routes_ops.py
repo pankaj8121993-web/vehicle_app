@@ -1,8 +1,11 @@
+import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
 from auth import require_permission, record_security_event
-from models import TripCreate, FuelCreate, ServiceCreate, RepairCreate, GreasingCreate
+from models import TripCreate, TripPlan, FuelCreate, ServiceCreate, RepairCreate, GreasingCreate
 from helpers import make_crud
+from references import validate_references
 import atomicity
 import idempotency
 import invariants
@@ -19,7 +22,23 @@ async def _update_vehicle_odometer(vehicle_id: str, odometer):
         await db.vehicles.update_one({"id": vehicle_id}, {"$set": {"current_odometer": odometer}})
 
 
-# ---------- Trips ----------
+# ---------- Trips (OPS-01 lifecycle) ----------
+# Full operational lifecycle:
+#   planned → assigned → ongoing(dispatched) → completed → settlement_pending → closed
+# plus cancellation from any pre-completion state. The quick full-entry path
+# (POST /trips) is unchanged — it still lands a trip directly in ongoing or
+# completed — so every pre-OPS-01 client and test keeps working. The dedicated
+# actions below add planning, allocation, dispatch, reassignment and closure
+# with allocation-conflict, downtime, idempotency, concurrency and audit
+# controls. Generic PUT /trips can no longer touch status (workflow guard).
+
+# A vehicle/driver is "actively allocated" while on a trip in one of these
+# states; leaving them (complete/cancel/close) releases the resource.
+TRIP_ACTIVE_ALLOCATION = ("assigned", "ongoing")
+# Reassigning a trip that has already been dispatched needs explicit authority.
+TRIP_REASSIGN_AFTER_DISPATCH_ROLES = ("management", "admin")
+
+
 async def on_trip_create(doc):
     if doc.get("closing_km") is not None:
         doc["distance"] = round(doc["closing_km"] - doc["opening_km"], 1)
@@ -33,8 +52,210 @@ async def on_trip_create(doc):
 make_crud(router, "trips", "trips", TripCreate, on_create=on_trip_create, driver_can_create=True)
 
 
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def _trip_or_404(trip_id):
+    trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return trip
+
+
+async def _assert_no_active_allocation_conflict(vehicle_id, driver_id, exclude_trip_id):
+    """A vehicle/driver may be actively allocated to only one trip at a time.
+
+    'Active' is assigned or ongoing — not planned, completed, settlement_pending,
+    closed or cancelled. Prevents double-booking the same resource across
+    incompatible trips.
+    """
+    if vehicle_id:
+        clash = await db.trips.find_one(
+            {"vehicle_id": vehicle_id, "id": {"$ne": exclude_trip_id},
+             "status": {"$in": list(TRIP_ACTIVE_ALLOCATION)}},
+            {"_id": 0, "id": 1},
+        )
+        if clash:
+            raise HTTPException(status_code=409,
+                                detail="Vehicle is already allocated to an active trip")
+    if driver_id:
+        clash = await db.trips.find_one(
+            {"driver_id": driver_id, "id": {"$ne": exclude_trip_id},
+             "status": {"$in": list(TRIP_ACTIVE_ALLOCATION)}},
+            {"_id": 0, "id": 1},
+        )
+        if clash:
+            raise HTTPException(status_code=409,
+                                detail="Driver is already allocated to an active trip")
+
+
+def _trip_transition(trip, target, *, role=None):
+    """Validate a trip status transition; raises the workflow's 409/400/403."""
+    return workflow.validate_transition(
+        workflow.TRIP_STATUS_WORKFLOW, trip.get("status"), target, role=role
+    )
+
+
+@router.post("/trips/plan")
+async def plan_trip(payload: TripPlan, request: Request,
+                    user=Depends(require_permission("trips:create"))):
+    """Create a trip in the 'planned' state, before a vehicle/driver is committed."""
+    body = payload.model_dump()
+    doc = dict(body)
+    invariants.enforce_record_invariants("trips", doc)
+    await validate_references("trips", doc)  # same-org, in-service, only if supplied
+    idem_key = idempotency.key_from_headers(request.headers)
+    scope = "trip-plan"
+    if idem_key:
+        replayed, _fp = await idempotency.replay_or_claim(scope, idem_key, body)
+        if replayed is not None:
+            return replayed
+    try:
+        doc["id"] = str(uuid.uuid4())
+        doc["created_at"] = _now_iso()
+        doc["created_by"] = user["user_id"]
+        doc["is_test_data"] = user.get("role") == "test"
+        doc["status"] = "planned"
+        doc["distance"] = None
+        await db.trips.insert_one({**doc})
+        doc.pop("_id", None)
+    except Exception:
+        if idem_key:
+            await idempotency.release(scope, idem_key)
+        raise
+    await record_security_event("trip.plan", user, target_id=doc["id"],
+                                detail={"vehicle_id": doc.get("vehicle_id")})
+    if idem_key:
+        await idempotency.store_result(scope, idem_key, doc)
+    return doc
+
+
+@router.patch("/trips/{trip_id}/assign")
+async def assign_trip(trip_id: str, payload: dict = Body(...),
+                      user=Depends(require_permission("trips:close"))):
+    """Allocate a vehicle and/or driver to a planned/assigned trip (before dispatch)."""
+    trip = await _trip_or_404(trip_id)
+    current = trip.get("status")
+    if current not in ("planned", "assigned"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot allocate a trip in state {current!r}; it is already dispatched or closed",
+        )
+    workflow.check_version(trip, payload.get("expected_version"))
+    vehicle_id = payload["vehicle_id"] if "vehicle_id" in payload else trip.get("vehicle_id")
+    driver_id = payload["driver_id"] if "driver_id" in payload else trip.get("driver_id")
+    if not vehicle_id and not driver_id:
+        raise HTTPException(status_code=400, detail="Assign a vehicle and/or driver")
+    ref = {}
+    if vehicle_id:
+        ref["vehicle_id"] = vehicle_id
+    if driver_id:
+        ref["driver_id"] = driver_id
+    await validate_references("trips", ref)
+    await _assert_no_active_allocation_conflict(vehicle_id, driver_id, trip_id)
+    updates = {"vehicle_id": vehicle_id, "driver_id": driver_id,
+               "status": "assigned", "_version": workflow.next_version(trip)}
+    # CAS on the loaded status so two concurrent assigns cannot both win.
+    won = await atomicity.swap_status("trips", trip_id, current, updates)
+    if not won:
+        raise HTTPException(status_code=409,
+                            detail="This trip changed since you loaded it. Reload and retry.")
+    await record_security_event("trip.assign", user, target_id=trip_id,
+                                detail={"vehicle_id": vehicle_id, "driver_id": driver_id})
+    return await db.trips.find_one({"id": trip_id}, {"_id": 0})
+
+
+@router.patch("/trips/{trip_id}/reassign")
+async def reassign_trip(trip_id: str, payload: dict = Body(...),
+                        user=Depends(require_permission("trips:close"))):
+    """Change a trip's vehicle/driver. Before dispatch: any acting role. After
+    dispatch (ongoing): management/admin only, with a mandatory reason."""
+    trip = await _trip_or_404(trip_id)
+    current = trip.get("status")
+    reason = payload.get("reason")
+    if current in ("planned", "assigned"):
+        pass  # reassignment before dispatch is a routine correction
+    elif current == "ongoing":
+        if user.get("role") not in TRIP_REASSIGN_AFTER_DISPATCH_ROLES:
+            raise HTTPException(status_code=403,
+                                detail="Reassigning a dispatched trip requires management or admin")
+        if not reason:
+            raise HTTPException(status_code=400,
+                                detail="A reason is required to reassign a dispatched trip")
+    else:
+        raise HTTPException(status_code=409,
+                            detail=f"Cannot reassign a trip in state {current!r}")
+    workflow.check_version(trip, payload.get("expected_version"))
+    vehicle_id = payload["vehicle_id"] if "vehicle_id" in payload else trip.get("vehicle_id")
+    driver_id = payload["driver_id"] if "driver_id" in payload else trip.get("driver_id")
+    ref = {}
+    if vehicle_id:
+        ref["vehicle_id"] = vehicle_id
+    if driver_id:
+        ref["driver_id"] = driver_id
+    await validate_references("trips", ref)
+    await _assert_no_active_allocation_conflict(vehicle_id, driver_id, trip_id)
+    updates = {"vehicle_id": vehicle_id, "driver_id": driver_id,
+               "_version": workflow.next_version(trip)}
+    if reason:
+        updates["reassign_reason"] = reason
+    won = await atomicity.swap_status("trips", trip_id, current, updates)
+    if not won:
+        raise HTTPException(status_code=409,
+                            detail="This trip changed since you loaded it. Reload and retry.")
+    await record_security_event(
+        "trip.reassign", user, target_id=trip_id,
+        detail={"from_vehicle": trip.get("vehicle_id"), "to_vehicle": vehicle_id,
+                "from_driver": trip.get("driver_id"), "to_driver": driver_id,
+                "post_dispatch": current == "ongoing"},
+    )
+    return await db.trips.find_one({"id": trip_id}, {"_id": 0})
+
+
+@router.patch("/trips/{trip_id}/dispatch")
+async def dispatch_trip(trip_id: str, payload: dict = Body(default={}),
+                        user=Depends(require_permission("trips:close"))):
+    """Dispatch an assigned trip (assigned → ongoing). Requires an allocated
+    vehicle and driver, and is blocked while the vehicle has open downtime."""
+    trip = await _trip_or_404(trip_id)
+    current = trip.get("status")
+    workflow.check_version(trip, payload.get("expected_version"))
+    # assigned → ongoing. A planned trip is refused here (assign first); an
+    # already-ongoing trip is an idempotent no-op (double dispatch).
+    if _trip_transition(trip, "ongoing") == "noop":
+        return trip
+    if not trip.get("vehicle_id"):
+        raise HTTPException(status_code=400, detail="Assign a vehicle before dispatch")
+    if not trip.get("driver_id"):
+        raise HTTPException(status_code=400, detail="Assign a driver before dispatch")
+    open_dt = await db.downtimes.find_one(
+        {"vehicle_id": trip["vehicle_id"], "status": "open"}, {"_id": 0, "id": 1}
+    )
+    if open_dt:
+        raise HTTPException(status_code=409,
+                            detail="Vehicle has open downtime; resolve it before dispatch")
+    await _assert_no_active_allocation_conflict(trip["vehicle_id"], trip["driver_id"], trip_id)
+    updates = {"status": "ongoing", "_version": workflow.next_version(trip),
+               "dispatched_at": _now_iso()}
+    if payload.get("opening_km") is not None:
+        updates["opening_km"] = invariants.odometer(payload["opening_km"], field="opening_km",
+                                                     allow_none=False)
+    if payload.get("actual_start_date"):
+        updates["actual_start_date"] = payload["actual_start_date"]
+    won = await atomicity.swap_status("trips", trip_id, current, updates)
+    if not won:
+        raise HTTPException(status_code=409,
+                            detail="This trip changed since you loaded it. Reload and retry.")
+    await record_security_event("trip.dispatch", user, target_id=trip_id,
+                                detail={"vehicle_id": trip["vehicle_id"], "driver_id": trip["driver_id"]})
+    return await db.trips.find_one({"id": trip_id}, {"_id": 0})
+
+
 @router.patch("/trips/{trip_id}/close")
 async def close_trip(trip_id: str, payload: dict = Body(...), user=Depends(require_permission("trips:close"))):
+    """Confirm reach / completion (ongoing → completed): record the closing
+    odometer, compute distance and forward the vehicle odometer. Idempotent."""
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
@@ -66,6 +287,51 @@ async def close_trip(trip_id: str, payload: dict = Body(...), user=Depends(requi
     await _update_vehicle_odometer(trip["vehicle_id"], closing_km)
     await record_security_event("trip.close", user, target_id=trip_id,
                                 detail={"distance": distance})
+    return await db.trips.find_one({"id": trip_id}, {"_id": 0})
+
+
+@router.patch("/trips/{trip_id}/finalize")
+async def finalize_trip(trip_id: str, payload: dict = Body(default={}),
+                        user=Depends(require_permission("trips:close"))):
+    """Final operational closure (completed/settlement_pending → closed). Terminal;
+    releases the vehicle/driver. Idempotent on an already-closed trip."""
+    trip = await _trip_or_404(trip_id)
+    current = trip.get("status")
+    workflow.check_version(trip, payload.get("expected_version"))
+    if _trip_transition(trip, "closed") == "noop":
+        return trip
+    updates = {"status": "closed", "_version": workflow.next_version(trip),
+               "closed_at": _now_iso()}
+    won = await atomicity.swap_status("trips", trip_id, current, updates)
+    if not won:
+        raise HTTPException(status_code=409,
+                            detail="This trip changed since you loaded it. Reload and retry.")
+    await record_security_event("trip.finalize", user, target_id=trip_id,
+                                detail={"from": current})
+    return await db.trips.find_one({"id": trip_id}, {"_id": 0})
+
+
+@router.patch("/trips/{trip_id}/cancel")
+async def cancel_trip(trip_id: str, payload: dict = Body(default={}),
+                      user=Depends(require_permission("trips:close"))):
+    """Cancel a pre-completion trip (planned/assigned/ongoing → cancelled).
+    Preserves history and releases the vehicle/driver. Idempotent."""
+    trip = await _trip_or_404(trip_id)
+    current = trip.get("status")
+    workflow.check_version(trip, payload.get("expected_version"))
+    if _trip_transition(trip, "cancelled") == "noop":
+        return trip
+    reason = payload.get("reason")
+    updates = {"status": "cancelled", "_version": workflow.next_version(trip),
+               "cancelled_at": _now_iso()}
+    if reason:
+        updates["cancel_reason"] = reason
+    won = await atomicity.swap_status("trips", trip_id, current, updates)
+    if not won:
+        raise HTTPException(status_code=409,
+                            detail="This trip changed since you loaded it. Reload and retry.")
+    await record_security_event("trip.cancel", user, target_id=trip_id,
+                                detail={"from": current})
     return await db.trips.find_one({"id": trip_id}, {"_id": 0})
 
 

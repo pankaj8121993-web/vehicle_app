@@ -153,6 +153,27 @@ class TripCreate(TenantSafeModel):
     notes: Optional[str] = None
 
 
+class TripPlan(TenantSafeModel):
+    """OPS-01 — plan a trip before a vehicle/driver is committed.
+
+    Unlike ``TripCreate`` (the quick full-entry path), planning is deliberately
+    permissive about what is known up front: a planned trip may have no vehicle,
+    no driver and no opening odometer yet — those are supplied through the
+    dedicated assign/dispatch actions. Financial fields are intentionally absent;
+    they belong to the completion/settlement steps.
+    """
+    date: str
+    vehicle_id: Optional[str] = None
+    driver_id: Optional[str] = None
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    purpose: Optional[str] = None
+    planned_start_date: Optional[str] = None
+    planned_end_date: Optional[str] = None
+    opening_km: Optional[float] = None
+    notes: Optional[str] = None
+
+
 class FuelCreate(TenantSafeModel):
     date: str
     vehicle_id: str

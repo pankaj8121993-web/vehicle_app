@@ -56,7 +56,10 @@ def test_unknown_target_is_400():
     (wf.VEHICLE_STATUS_WORKFLOW, "scrapped"),
     (wf.DRIVER_STATUS_WORKFLOW, "resigned"),
     (wf.DRIVER_STATUS_WORKFLOW, "terminated"),
-    (wf.TRIP_STATUS_WORKFLOW, "completed"),
+    # OPS-01 extended the trip lifecycle: "completed" now advances to
+    # settlement/closure, so the terminal trip states are "closed" and "cancelled".
+    (wf.TRIP_STATUS_WORKFLOW, "closed"),
+    (wf.TRIP_STATUS_WORKFLOW, "cancelled"),
     (wf.DOWNTIME_STATUS_WORKFLOW, "closed"),
     (wf.REPAIR_WORKFLOW, "closed"),
 ])
@@ -91,8 +94,11 @@ def test_driver_exit_role_enforced():
 
 
 def test_none_current_uses_initial():
-    """A record with no status yet is treated as its initial state."""
-    assert validate_transition(wf.TRIP_STATUS_WORKFLOW, None, "completed") == "ok"
+    """A record with no status yet is treated as its initial state.
+
+    OPS-01: the trip lifecycle now starts at "planned", whose only forward edge
+    is to "assigned" (a bare status jump straight to "completed" is refused)."""
+    assert validate_transition(wf.TRIP_STATUS_WORKFLOW, None, "assigned") == "ok"
 
 
 # --- Version / optimistic concurrency ----------------------------------------
