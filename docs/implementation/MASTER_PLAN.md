@@ -443,6 +443,29 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 > Incomplete; production release Blocked pending SEC-004 and SEC-005. See
 > `docs/implementation/SECURITY_RELEASE_GATE.md`.
 
+> **Phase 2 — Data Integrity and Financial Correctness COMPLETE (repository), 25 July 2026.**
+> The data-integrity programme is implemented, tested and merged into `develop`:
+> **DI-01** canonical records and invariants (PR #14, `4be98ef`), **DI-02** atomic
+> operations and idempotency (PR #15, `551dc0b`), **DI-03** reconciliation and derived
+> balances (PR #16, `f2c3858`), **DI-04** data-quality controls and repair tooling
+> (PR #17, `b2e542c`), and **DI-CLOSEOUT** the data-integrity release gate (PR #18).
+> New modules: `invariants.py`, `references.py`, `idempotency.py`, `atomicity.py`,
+> `reconciliation.py`, `routes_reconciliation.py`, `check_data_integrity.py`. Docs:
+> `DATA_INTEGRITY_MODEL.md`, `ATOMICITY_AND_IDEMPOTENCY.md`, `RECONCILIATION_RULES.md`,
+> `DATA_INTEGRITY_RUNBOOK.md`, `DATA_INTEGRITY_EVIDENCE_TEMPLATE.md`,
+> `DATA_INTEGRITY_RELEASE_GATE.md`, `DATA_EXECUTION_STATUS.md`. This directly
+> addresses the P1 data-integrity findings **DATA-01, FUEL-01, SIDEFX-01, EXP-01**
+> and **STATUS-01** below (duplicate/partial-write prevention, mileage/odometer
+> validation, reversible/atomic side effects, single source-linked ledger with no
+> double counting, and one canonical calculation service for dashboards/reports/
+> exports). Full backend suite 712 passed, 3 skipped; two duplicate/atomicity
+> controls mutation-tested. Note: the environment's MongoDB is a standalone, so
+> atomicity uses single-document compare-and-swap + compensation rather than
+> multi-document transactions. Conclusion: **repository data-integrity controls
+> Complete; production data reconciliation Not performed; production release Pending
+> production backup, integrity scan and reconciliation sign-off.** See
+> `docs/implementation/DATA_INTEGRITY_RELEASE_GATE.md`.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
