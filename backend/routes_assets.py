@@ -14,15 +14,28 @@ make_crud(router, "tyres", "tyres", TyreCreate, date_field="installation_date", 
 
 
 async def on_tyre_event_create(doc):
+    # Derive the event's own vehicle_id from its tyre when omitted. This shapes
+    # the record itself, so it stays in the pre-insert hook.
     if not doc.get("vehicle_id"):
         tyre = await db.tyres.find_one({"id": doc["tyre_id"]}, {"_id": 0})
         if tyre:
             doc["vehicle_id"] = tyre["vehicle_id"]
-    if doc["event_type"] == "replacement":
-        await db.tyres.update_one({"id": doc["tyre_id"]}, {"$set": {"status": "removed", "removal_km": doc.get("odometer")}})
     return doc
 
-make_crud(router, "tyre-events", "tyre_events", TyreEventCreate, on_create=on_tyre_event_create, module="tyres")
+
+async def after_tyre_event_create(doc):
+    # DI-02: the tyre status change is a *derived* side effect and now runs after
+    # the event is stored (write-source-first). If it failed, the event still
+    # exists and the tyre's status is rebuildable from its events, rather than a
+    # tyre flipped to "removed" with no event to explain it.
+    if doc.get("event_type") == "replacement":
+        await db.tyres.update_one(
+            {"id": doc["tyre_id"]},
+            {"$set": {"status": "removed", "removal_km": doc.get("odometer")}},
+        )
+
+make_crud(router, "tyre-events", "tyre_events", TyreEventCreate,
+          on_create=on_tyre_event_create, after_create=after_tyre_event_create, module="tyres")
 
 
 # ---------- Accidents ----------
@@ -30,12 +43,17 @@ make_crud(router, "accidents", "accidents", AccidentCreate)
 
 
 # ---------- Fastag ----------
-async def on_fastag_create(doc):
+async def after_fastag_create(doc):
+    # DI-02: adjust the running balance *after* the transaction is stored. The
+    # transaction is the source of truth; the vehicle balance is a derived cache
+    # (DI-03 recomputes it from the transaction set). Doing the balance write
+    # first — as the pre-DI-02 hook did — could increment the balance for a
+    # transaction that then failed to insert.
     delta = doc["amount"] if doc["txn_type"] == "recharge" else -doc["amount"]
     await db.vehicles.update_one({"id": doc["vehicle_id"]}, {"$inc": {"fastag_balance": delta}})
-    return doc
 
-make_crud(router, "fastag", "fastag_transactions", FastagTxnCreate, on_create=on_fastag_create, module="fastag")
+make_crud(router, "fastag", "fastag_transactions", FastagTxnCreate,
+          after_create=after_fastag_create, module="fastag")
 
 
 # FASTAG-01: FASTag "sync" is a demo-only *simulation* — there is no public

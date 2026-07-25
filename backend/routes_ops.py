@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from database import db
 from auth import require_permission, record_security_event
 from models import TripCreate, FuelCreate, ServiceCreate, RepairCreate, GreasingCreate
 from helpers import make_crud
+import atomicity
+import idempotency
 import invariants
 import workflow
 
@@ -52,7 +54,15 @@ async def close_trip(trip_id: str, payload: dict = Body(...), user=Depends(requi
     if closing_km < trip["opening_km"]:
         raise HTTPException(status_code=400, detail="closing_km must be >= opening_km")
     distance = round(closing_km - trip["opening_km"], 1)
-    await db.trips.update_one({"id": trip_id}, {"$set": {"closing_km": closing_km, "distance": distance, "status": "completed"}})
+    # DI-02: compare-and-swap on the still-"ongoing" trip. Two concurrent closes
+    # cannot both apply the odometer bump — exactly one matches "ongoing" and
+    # wins; the loser sees the trip already completed and returns it idempotently.
+    won = await atomicity.swap_status(
+        "trips", trip_id, trip.get("status") or "ongoing",
+        {"closing_km": closing_km, "distance": distance, "status": "completed"},
+    )
+    if not won:
+        return await db.trips.find_one({"id": trip_id}, {"_id": 0})
     await _update_vehicle_odometer(trip["vehicle_id"], closing_km)
     await record_security_event("trip.close", user, target_id=trip_id,
                                 detail={"distance": distance})
@@ -136,12 +146,23 @@ make_crud(router, "repairs", "repairs", RepairCreate, on_create=on_repair_create
 
 
 @router.patch("/repairs/{repair_id}/status")
-async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends(require_permission("repairs:transition"))):
+async def advance_repair(repair_id: str, request: Request, payload: dict = Body(...), user=Depends(require_permission("repairs:transition"))):
+    # DI-02: optional idempotency for the transition action — a double-tapped
+    # "Approve" with the same Idempotency-Key replays the first result.
+    idem_key = idempotency.key_from_headers(request.headers)
+    scope = f"repair-transition:{repair_id}"
+    if idem_key:
+        replayed, _fp = await idempotency.replay_or_claim(scope, idem_key, payload)
+        if replayed is not None:
+            return replayed
     repair = await db.repairs.find_one({"id": repair_id}, {"_id": 0})
     if not repair:
+        if idem_key:
+            await idempotency.release(scope, idem_key)
         raise HTTPException(status_code=404, detail="Ticket not found")
     new_status = payload.get("status")
-    current = repair.get("status", "open")
+    stored_status = repair.get("status", "open")
+    current = stored_status
     # Legacy migration: if record still has old status, accept "reported" → "open"
     if current == "reported":
         current = "open"
@@ -149,9 +170,17 @@ async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends
     # shared engine's REPAIR_WORKFLOW. Optimistic-concurrency check: a caller may
     # pass expected_version so two managers cannot both advance the same ticket.
     workflow.check_version(repair, payload.get("expected_version"))
-    workflow.validate_transition(
+    kind = workflow.validate_transition(
         workflow.REPAIR_WORKFLOW, current, new_status, role=user.get("role")
     )
+    if kind == "noop":
+        # DI-02: the ticket is already in the requested state. Return it
+        # idempotently without rewriting timestamps or emitting a second audit —
+        # so a retried/serialised double "approve" cannot double-apply.
+        result = await db.repairs.find_one({"id": repair_id}, {"_id": 0})
+        if idem_key:
+            await idempotency.store_result(scope, idem_key, result)
+        return result
     updates = {"status": new_status, "_version": workflow.next_version(repair)}
     field = STAGE_FIELD_FILLED.get(new_status)
     if field:
@@ -172,7 +201,22 @@ async def advance_repair(repair_id: str, payload: dict = Body(...), user=Depends
         updates["notes"] = payload["notes"]
     if payload.get("rejection_reason"):
         updates["rejection_reason"] = payload["rejection_reason"]
-    await db.repairs.update_one({"id": repair_id}, {"$set": updates})
+    # DI-02: compare-and-swap on the ticket's stored status. Of two concurrent
+    # requests advancing the same ticket, only the one whose expected status
+    # still matches wins — the other gets 409, so a ticket cannot be
+    # double-approved or double-closed. A single atomic single-document update,
+    # safe without a multi-document transaction.
+    won = await atomicity.swap_status("repairs", repair_id, stored_status, updates)
+    if not won:
+        if idem_key:
+            await idempotency.release(scope, idem_key)
+        raise HTTPException(
+            status_code=409,
+            detail="This ticket changed since you loaded it. Reload and retry.",
+        )
     await record_security_event("repair.transition", user, target_id=repair_id,
                                 detail={"from": current, "to": new_status})
-    return await db.repairs.find_one({"id": repair_id}, {"_id": 0})
+    result = await db.repairs.find_one({"id": repair_id}, {"_id": 0})
+    if idem_key:
+        await idempotency.store_result(scope, idem_key, result)
+    return result

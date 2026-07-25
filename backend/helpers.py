@@ -6,6 +6,7 @@ from auth import require_user, require_permission, MODULE_ACCESS
 from tenant_policy import reject_protected_fields
 import workflow
 import invariants
+import idempotency
 from references import validate_references
 
 
@@ -40,7 +41,7 @@ async def enrich(items):
     return items
 
 
-def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: str = "date", on_create=None, driver_can_create: bool = False, module: str = None, perm_resource: str = None):
+def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: str = "date", on_create=None, after_create=None, driver_can_create: bool = False, module: str = None, perm_resource: str = None):
     # AUTHZ-01: the permission resource is the path with hyphens normalised
     # ("tyre-events" -> "tyre_events"), matching permissions.CRUD_RESOURCES.
     # driver_can_create is retained only for signature compatibility; the driver
@@ -74,21 +75,49 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         return {"items": await enrich(items), "total": total, "page": page, "page_size": page_size}
 
     @router.post(f"/{path}")
-    async def create_item(payload: CreateModel, user=Depends(require_permission(f"{perm}:create"))):
-        doc = payload.model_dump()
+    async def create_item(payload: CreateModel, request: Request, user=Depends(require_permission(f"{perm}:create"))):
+        body = payload.model_dump()
         # DI-01: canonical invariants (money precision/sign, quantity, odometer,
         # cross-field ordering) run before any derived value is computed, and
         # referential integrity (same-org, in-service) before the record lands.
+        # These are pure/read-only, so they run before the idempotency claim: a
+        # request that would 400 never consumes a key.
+        doc = dict(body)
         invariants.enforce_record_invariants(coll, doc)
         await validate_references(coll, doc)
-        doc["id"] = str(uuid.uuid4())
-        doc["created_at"] = datetime.now(timezone.utc).isoformat()
-        doc["created_by"] = user["user_id"]
-        doc["is_test_data"] = user.get("role") == "test"
-        if on_create:
-            doc = await on_create(doc)
-        await db[coll].insert_one({**doc})
-        doc.pop("_id", None)
+
+        # DI-02: optional idempotency. With an Idempotency-Key header, a retried
+        # create returns the original record instead of writing a second one.
+        idem_key = idempotency.key_from_headers(request.headers)
+        scope = f"create:{coll}"
+        if idem_key:
+            replayed, _fp = await idempotency.replay_or_claim(scope, idem_key, body)
+            if replayed is not None:
+                return replayed
+
+        try:
+            doc["id"] = str(uuid.uuid4())
+            doc["created_at"] = datetime.now(timezone.utc).isoformat()
+            doc["created_by"] = user["user_id"]
+            doc["is_test_data"] = user.get("role") == "test"
+            if on_create:
+                doc = await on_create(doc)
+            await db[coll].insert_one({**doc})
+            doc.pop("_id", None)
+            # DI-02: derived side effects run *after* the source record is stored,
+            # so a failure here never leaves an orphaned side effect without its
+            # event (write-source-first; the derived value is rebuildable).
+            if after_create:
+                await after_create(doc)
+        except Exception:
+            # Release the claim so a genuine retry can proceed rather than being
+            # blocked as "in progress" until the TTL expires.
+            if idem_key:
+                await idempotency.release(scope, idem_key)
+            raise
+
+        if idem_key:
+            await idempotency.store_result(scope, idem_key, doc)
         return doc
 
     @router.put(f"/{path}/{{item_id}}")

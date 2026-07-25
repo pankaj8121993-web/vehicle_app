@@ -6,6 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from database import client, raw_db, TENANT_COLLECTIONS
 from tenant_policy import TenantViolation
+import atomicity
 import auth
 import routes_core
 import routes_ops
@@ -143,6 +144,9 @@ async def startup():
     # DI-01: organisation-scoped uniqueness. Runs after the backfills so
     # ticket_number is populated before its unique index is attempted.
     await _ensure_integrity_indexes()
+    # DI-02: idempotency-key index + one-time transaction-support probe.
+    await _ensure_idempotency_indexes()
+    await atomicity.probe_transactions()
 
 
 # FILE-01: files are excluded from the blanket default-org backfill below.
@@ -296,6 +300,26 @@ async def _ensure_integrity_indexes():
                 "duplicates — run check_data_integrity.py to find them): %s",
                 name, coll, e,
             )
+
+
+async def _ensure_idempotency_indexes():
+    """DI-02: unique key claim + TTL expiry for idempotency records.
+
+    The unique (org_id, scope, key) index is the atomic claim mechanism — the
+    first inserter wins, a concurrent duplicate hits DuplicateKeyError. The TTL
+    reaps old keys so the collection cannot grow without bound; 24h is far longer
+    than any legitimate client retry window.
+    """
+    try:
+        await raw_db.idempotency_keys.create_index(
+            [("org_id", 1), ("scope", 1), ("key", 1)],
+            name="uniq_org_scope_key", unique=True,
+        )
+        await raw_db.idempotency_keys.create_index(
+            "created_at_dt", name="idem_ttl", expireAfterSeconds=86400,
+        )
+    except Exception as e:
+        logger.warning("DI-02: idempotency index creation issue: %s", e)
 
 
 async def _migrate_repair_statuses():
