@@ -72,7 +72,10 @@ _VALID_STATUSES = {
     "vehicles": {"active", "inactive", "maintenance", "idle", "under_repair", "sold", "scrapped"},
     "drivers": {"active", "on_leave", "resigned", "terminated"},
     "downtimes": {"open", "closed"},
-    "trips": {"ongoing", "completed"},
+    # OPS-01 extended the trip lifecycle; the scanner must recognise every state
+    # the workflow can write or it would flag valid records as invalid_status.
+    "trips": {"planned", "assigned", "ongoing", "completed",
+              "settlement_pending", "closed", "cancelled"},
     "repairs": {"open", "under_review", "approved", "sent_for_repair", "in_repair",
                 "repaired", "closed"},
 }

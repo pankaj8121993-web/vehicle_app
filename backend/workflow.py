@@ -127,17 +127,42 @@ DOWNTIME_STATUS_WORKFLOW = Workflow(
     initial="open",
 )
 
-# Trips. A trip starts "ongoing" (set by on_trip_create) and is closed by the
-# dedicated close endpoint, which sets "completed". Completed is terminal:
-# re-closing must not recompute distance/odometer from a new closing_km.
+# Trips (OPS-01). The full operational lifecycle:
+#
+#   planned → assigned → ongoing(dispatched) → completed → settlement_pending → closed
+#
+# plus cancellation from any pre-completion state. The legacy quick-entry path
+# (POST /trips with a closing_km) still lands a trip directly in "completed" and
+# the ongoing→completed hop is still what PATCH /trips/{id}/close performs, so
+# every pre-OPS-01 trip and test keeps working; the earlier states and the
+# terminal "closed"/"cancelled" states are additive.
+#
+# Terminal states (closed, cancelled) cannot transition out. completed is *not*
+# terminal any more — it advances to settlement/closure — but PATCH .../close
+# stays idempotent on an already-completed trip (it performs ongoing→completed
+# only), so the WF-01 double-close guarantee is unchanged; final closure is the
+# separate PATCH .../finalize action.
+_TRIP_ACTIVE_ALLOCATION = ("assigned", "ongoing")
 TRIP_STATUS_WORKFLOW = Workflow(
     "trips",
     {
-        "ongoing": ["completed"],
-        "completed": [],
+        "planned": ["assigned", "cancelled"],
+        "assigned": ["ongoing", "planned", "cancelled"],
+        "ongoing": ["completed", "cancelled"],
+        "completed": ["settlement_pending", "closed"],
+        "settlement_pending": ["closed"],
+        "closed": [],
+        "cancelled": [],
     },
-    initial="ongoing",
+    initial="planned",
 )
+
+# Collections whose ``status`` may only ever be changed through a dedicated
+# workflow action, never a generic PUT. For trips a generic status write would
+# skip the allocation/odometer/audit side effects the dedicated endpoints carry
+# (assign, dispatch, complete/close, cancel), so it is refused outright — a
+# generic update must not be a bypass. A no-op (same status) is still allowed.
+DEDICATED_ONLY_STATUS = {"trips"}
 
 # Collections whose ``status`` is workflow-controlled. A generic update that
 # tries to change status on one of these is routed through validate_transition
@@ -219,5 +244,13 @@ def enforce_generic_status_change(collection: str, existing: dict, payload: dict
         return False
     current = (existing or {}).get("status") or wf.initial
     target = payload["status"]
+    if collection in DEDICATED_ONLY_STATUS and target != current:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{wf.name} status is driven by dedicated actions, not a generic "
+                "update. Use the assign / dispatch / close / cancel endpoints."
+            ),
+        )
     result = validate_transition(wf, current, target, role=role)
     return result == "ok"
