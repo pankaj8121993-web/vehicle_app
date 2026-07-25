@@ -8,6 +8,7 @@ from models import VehicleCreate, DriverCreate, DocumentCreate
 from helpers import make_crud, gather_expenses
 from tenant_policy import reject_protected_fields
 import file_policy
+import idempotency
 import invariants
 from references import validate_references
 import workflow
@@ -60,15 +61,30 @@ async def list_vehicles(request: Request, user=Depends(require_user)):
 
 
 @router.post("/vehicles")
-async def create_vehicle(payload: VehicleCreate, user=Depends(require_permission("vehicles:create"))):
-    doc = payload.model_dump()
+async def create_vehicle(payload: VehicleCreate, request: Request, user=Depends(require_permission("vehicles:create"))):
+    body = payload.model_dump()
+    doc = dict(body)
     invariants.enforce_record_invariants("vehicles", doc)
-    doc["id"] = str(uuid.uuid4())
-    doc["created_at"] = datetime.now(timezone.utc).isoformat()
-    doc["created_by"] = user["user_id"]
-    doc["is_test_data"] = user.get("role") == "test"
-    await db.vehicles.insert_one({**doc})
-    doc.pop("_id", None)
+    # DI-02: optional idempotency — a retried vehicle create returns the original
+    # record instead of a duplicate (and instead of a unique-index 500).
+    idem_key = idempotency.key_from_headers(request.headers)
+    if idem_key:
+        replayed, _fp = await idempotency.replay_or_claim("create:vehicles", idem_key, body)
+        if replayed is not None:
+            return replayed
+    try:
+        doc["id"] = str(uuid.uuid4())
+        doc["created_at"] = datetime.now(timezone.utc).isoformat()
+        doc["created_by"] = user["user_id"]
+        doc["is_test_data"] = user.get("role") == "test"
+        await db.vehicles.insert_one({**doc})
+        doc.pop("_id", None)
+    except Exception:
+        if idem_key:
+            await idempotency.release("create:vehicles", idem_key)
+        raise
+    if idem_key:
+        await idempotency.store_result("create:vehicles", idem_key, doc)
     return doc
 
 
@@ -361,15 +377,28 @@ async def list_drivers(request: Request, user=Depends(require_module("drivers"))
 
 
 @router.post("/drivers")
-async def create_driver(payload: DriverCreate, user=Depends(require_permission("drivers:create"))):
-    doc = payload.model_dump()
+async def create_driver(payload: DriverCreate, request: Request, user=Depends(require_permission("drivers:create"))):
+    body = payload.model_dump()
+    doc = dict(body)
     await validate_references("drivers", doc)
-    doc["id"] = str(uuid.uuid4())
-    doc["created_at"] = datetime.now(timezone.utc).isoformat()
-    doc["created_by"] = user["user_id"]
-    doc["is_test_data"] = user.get("role") == "test"
-    await db.drivers.insert_one({**doc})
-    doc.pop("_id", None)
+    idem_key = idempotency.key_from_headers(request.headers)
+    if idem_key:
+        replayed, _fp = await idempotency.replay_or_claim("create:drivers", idem_key, body)
+        if replayed is not None:
+            return replayed
+    try:
+        doc["id"] = str(uuid.uuid4())
+        doc["created_at"] = datetime.now(timezone.utc).isoformat()
+        doc["created_by"] = user["user_id"]
+        doc["is_test_data"] = user.get("role") == "test"
+        await db.drivers.insert_one({**doc})
+        doc.pop("_id", None)
+    except Exception:
+        if idem_key:
+            await idempotency.release("create:drivers", idem_key)
+        raise
+    if idem_key:
+        await idempotency.store_result("create:drivers", idem_key, doc)
     return doc
 
 
