@@ -15,17 +15,17 @@ alone.
 | Duplicate-submit protection | Implemented but not fully verified | Shared synchronous lock and tests; domain audit incomplete |
 | Unsaved-change protection | Implemented but not fully verified | Shared CRUD coverage; domain-specific coverage incomplete |
 | Destructive actions | Partially implemented | Shared confirmation improved; domain workflows require browser verification |
-| Search, sorting, pagination, totals | Implemented but not fully verified | Server query contract and targeted tests; complete endpoint/DB-backed matrix incomplete |
-| Search beyond page one | Implemented but not fully verified | Server-side contract implemented; full HTTP matrix incomplete |
-| Filters and return persistence | Partially implemented | URL list context exists; broad filter persistence evidence absent |
+| Search, sorting, pagination, totals | Implemented and verified | 25-test real-HTTP/disposable-Mongo endpoint matrix covers all applicable registers |
+| Search beyond page one | Implemented and verified | 23-row endpoint fixtures prove server search finds a naturally deep-page record |
+| Filters and return persistence | Implemented and verified | Status/date/domain/combined filters plus frontend filter/sort request persistence covered |
 | Export-filter parity | Not implemented | Existing exports have not been proven across all active filters |
 | Mobile grid behaviour | Not implemented | UX-05 not started |
 | Dashboard performance | Not implemented | API median/p95 unmeasured |
 | Vehicle-profile performance | Not implemented | API median/p95 unmeasured |
 | Large-list performance | Implemented but not fully verified | Direct MongoDB benchmarks only; authenticated API load absent |
 | Bundle size | Implemented and verified | UX-04 route splitting reduced initial gzip JS to 217.02 kB |
-| Role-backed E2E | Not implemented | Existing routes use mocked auth only |
-| Frontend component testing | Partially implemented | 17 tests before recovery; insufficient domain breadth |
+| Role-backed E2E | Implemented and verified | Eight desktop roles, four mobile roles and three Firefox roles use real logins/cookies and disposable MongoDB |
+| Frontend component testing | Partially implemented | Grid behavior expanded; high-risk domain-form regression remains |
 | Accessibility testing | Not implemented | No axe harness; UX-05 scope |
 | Visual regression | Not implemented | No screenshot baseline |
 | CI | Partially implemented | Recovery adds backend/frontend quality workflow; axe awaits UX-05 |
@@ -40,4 +40,3 @@ lists match these scopes and do not substantiate the missing evidence above.
 
 UX-R1 remains in progress until the complete backend, endpoint matrix,
 authenticated performance, Lighthouse and role-backed E2E gates are green.
-
