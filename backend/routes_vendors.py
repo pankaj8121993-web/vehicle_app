@@ -9,6 +9,7 @@ from database import db
 from auth import require_permission, require_module
 from models import VendorCreate
 from tenant_policy import reject_protected_fields
+from list_query import add_safe_search, page_response, pagination, sort_spec
 
 router = APIRouter(tags=["vendors"])
 
@@ -26,14 +27,15 @@ async def list_vendors(request: Request, user=Depends(require_module("vendors"))
         q["vendor_type"] = p["vendor_type"]
     if p.get("active_only") == "true":
         q["is_active"] = True
+    add_safe_search(q, "vendors", p.get("search"))
     if p.get("all") == "true":
         items = await db.vendors.find(q, {"_id": 0}).sort("name", 1).to_list(2000)
         return items
-    page = max(int(p.get("page", 1)), 1)
-    page_size = min(max(int(p.get("page_size", 25)), 1), 200)
+    page, page_size = pagination(p)
+    sort_field, sort_direction = sort_spec(p, {"name", "vendor_type", "contact_person", "mobile", "is_active", "created_at"}, "name", 1)
     total = await db.vendors.count_documents(q)
-    items = await db.vendors.find(q, {"_id": 0}).sort("name", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    items = await db.vendors.find(q, {"_id": 0}).sort(sort_field, sort_direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    return page_response(items, total, page, page_size)
 
 
 @router.post("/vendors")
