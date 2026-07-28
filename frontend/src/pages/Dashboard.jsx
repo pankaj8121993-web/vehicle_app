@@ -5,6 +5,7 @@ import { Loader2, Truck, Route, Hammer, PauseCircle, ShieldAlert, Fuel, Wrench, 
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
 import { DrillDownDialog } from "@/components/DrillDownDialog";
 import { SetupChecklistBanner } from "@/components/SetupChecklistBanner";
+import { ExceptionsPanel } from "@/components/ExceptionsPanel";
 
 const fmtMonth = (m) => {
   const [y, mo] = m.split("-");
@@ -98,6 +99,8 @@ export default function Dashboard() {
       </div>
 
       <SetupChecklistBanner />
+
+      <ExceptionsPanel />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Metric label="Total Vehicles" value={compliance.total_vehicles} icon={Truck} testId="metric-total-vehicles" />
