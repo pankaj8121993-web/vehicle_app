@@ -36,9 +36,9 @@ describe("route guards", () => {
     expect(screen.queryByText("Dashboard page")).not.toBeInTheDocument();
   });
 
-  test("redirects an anonymous protected route to login", () => {
+  test("redirects an anonymous protected route to login", async () => {
     renderRoute("/vehicles", { user: null, loading: false });
-    expect(screen.getByText("Login page")).toBeInTheDocument();
+    expect(await screen.findByText("Login page")).toBeInTheDocument();
   });
 
   test("renders permission denied instead of silently redirecting", () => {
@@ -47,9 +47,9 @@ describe("route guards", () => {
     expect(screen.getByText("This module is not available for your account.")).toBeInTheDocument();
   });
 
-  test("routes an authenticated user away from guest-only login", () => {
+  test("routes an authenticated user away from guest-only login", async () => {
     renderRoute("/login", { user: { role: "viewer", modules: ["dashboard"] }, loading: false });
-    expect(screen.getByText("Dashboard page")).toBeInTheDocument();
+    expect(await screen.findByText("Dashboard page")).toBeInTheDocument();
   });
 
   test("shows a useful broken-route fallback", () => {

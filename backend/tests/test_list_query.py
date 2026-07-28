@@ -1,4 +1,4 @@
-from backend.list_query import add_safe_search, page_response, pagination, sort_spec
+from list_query import add_safe_search, page_response, pagination, sort_spec
 
 
 def test_search_is_regex_escaped_and_bounded():
