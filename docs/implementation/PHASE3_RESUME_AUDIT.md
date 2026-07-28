@@ -18,7 +18,7 @@ alone.
 | Search, sorting, pagination, totals | Implemented and verified | 25-test real-HTTP/disposable-Mongo endpoint matrix covers all applicable registers |
 | Search beyond page one | Implemented and verified | 23-row endpoint fixtures prove server search finds a naturally deep-page record |
 | Filters and return persistence | Implemented and verified | Status/date/domain/combined filters plus frontend filter/sort request persistence covered |
-| Export-filter parity | Not implemented | Existing exports have not been proven across all active filters |
+| Export-filter parity | Implemented and verified | All 15 report exports parse; filtered full-result Excel/PDF, tenant scope, empty/error/safety/limit contracts covered |
 | Mobile grid behaviour | Not implemented | UX-05 not started |
 | Dashboard performance | Not implemented | API median/p95 unmeasured |
 | Vehicle-profile performance | Not implemented | API median/p95 unmeasured |

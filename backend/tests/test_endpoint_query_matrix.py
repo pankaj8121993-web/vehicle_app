@@ -1,8 +1,10 @@
 """UXR1-02: real-HTTP list/search/filter/pagination matrix on disposable MongoDB."""
 import uuid
+import io
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from openpyxl import load_workbook
 from passlib.hash import bcrypt
 
 import database
@@ -215,3 +217,71 @@ def test_exceptions_are_tenant_scoped_filtered_and_permission_enforced(matrix_en
         "POST", f"/api/exceptions/{own['items'][0]['id']}/acknowledge", json={}
     ))
     assert denied.status_code == 403
+
+
+def test_export_filter_parity_full_result_and_safe_content(matrix_env):
+    admin = matrix_env["admin"]
+    params = {
+        "vehicle_id": "matrix-vehicle", "start_date": "2026-06-10",
+        "end_date": "2026-06-20",
+    }
+    report = _get(admin, "reports/trips", params)
+    assert len(report["rows"]) > 1
+    excel = _run(admin.req(
+        "GET", "/api/reports/trips/export", params={**params, "format": "excel"}
+    ))
+    assert excel.status_code == 200
+    assert excel.headers["x-export-row-count"] == str(len(report["rows"]))
+    assert excel.headers["x-export-row-limit"] == "5000"
+    assert excel.headers["x-export-truncated"] == "false"
+    assert excel.headers["content-disposition"] == 'attachment; filename="trips_report.xlsx"'
+    sheet = load_workbook(io.BytesIO(excel.content), read_only=True).active
+    values = list(sheet.values)
+    assert list(values[0]) == report["columns"]
+    assert len(values) - 1 == len(report["rows"])
+    flattened = "\n".join(str(cell) for row in values for cell in row)
+    assert "query-matrix-b" not in flattened
+
+    pdf = _run(admin.req(
+        "GET", "/api/reports/trips/export", params={**params, "format": "pdf"}
+    ))
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF-")
+    assert pdf.headers["x-export-row-count"] == str(len(report["rows"]))
+    assert pdf.headers["content-disposition"] == 'attachment; filename="trips_report.pdf"'
+
+    empty = _run(admin.req(
+        "GET", "/api/reports/trips/export",
+        params={"vehicle_id": "missing", "format": "excel"},
+    ))
+    empty_sheet = load_workbook(io.BytesIO(empty.content), read_only=True).active
+    assert len(list(empty_sheet.values)) == 1
+    assert empty.headers["x-export-row-count"] == "0"
+    invalid = _run(admin.req("GET", "/api/reports/trips/export", params={"format": "csv"}))
+    assert invalid.status_code == 400
+    anonymous = _run(AsyncClient(
+        transport=ASGITransport(app=server.app), base_url="http://anonymous-export"
+    ).get("/api/reports/trips/export"))
+    assert anonymous.status_code == 401
+
+
+@pytest.mark.parametrize("key", [
+    "trips", "fuel", "services", "service_due", "repairs", "documents",
+    "expenses", "expense_category", "tyres", "accidents", "downtime",
+    "cost_per_km", "fuel_efficiency", "greasing", "greasing_due",
+])
+def test_every_synchronous_export_is_authenticated_and_parseable(matrix_env, key):
+    response = _run(matrix_env["admin"].req(
+        "GET", f"/api/reports/{key}/export", params={"format": "excel"}
+    ))
+    assert response.status_code == 200, f"{key}: {response.text[:200]}"
+    assert response.headers["content-disposition"] == f'attachment; filename="{key}_report.xlsx"'
+    workbook = load_workbook(io.BytesIO(response.content), read_only=True)
+    assert workbook.active.max_row >= 1
+    assert int(response.headers["x-export-row-count"]) == workbook.active.max_row - 1
+
+
+def test_spreadsheet_formula_fields_are_escaped():
+    from routes_analytics import _safe_excel_cell
+    assert _safe_excel_cell("=HYPERLINK('bad')").startswith("'")
+    assert _safe_excel_cell("+cmd").startswith("'")
+    assert _safe_excel_cell("ordinary") == "ordinary"
