@@ -1,4 +1,5 @@
 import "@/App.css";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -10,29 +11,37 @@ import Landing from "@/pages/Landing";
 import Onboarding from "@/pages/Onboarding";
 import DemoEntry from "@/pages/DemoEntry";
 import Login from "@/pages/Login";
-import ChangePassword from "@/pages/ChangePassword";
-import Dashboard from "@/pages/Dashboard";
-import Vehicles from "@/pages/Vehicles";
-import VehicleProfile from "@/pages/VehicleProfile";
-import DriverProfile from "@/pages/DriverProfile";
-import Expenses from "@/pages/Expenses";
-import Reports from "@/pages/Reports";
-import Compliance from "@/pages/Compliance";
-import ComplianceContacts from "@/pages/ComplianceContacts";
-import CalendarPage from "@/pages/CalendarPage";
-import FleetStatus from "@/pages/FleetStatus";
-import UserManagement from "@/pages/UserManagement";
-import TestDataAdmin from "@/pages/TestDataAdmin";
-import Vendors from "@/pages/Vendors";
-import DriverHome from "@/pages/DriverHome";
-import OrgSettings from "@/pages/OrgSettings";
 import PermissionDenied from "@/pages/PermissionDenied";
 import NotFound from "@/pages/NotFound";
 import { InstallPrompt } from "@/components/InstallPrompt";
-import {
-  TripsPage, FuelPage, MaintenancePage, RepairsPage, TyresPage,
-  AccidentsPage, FastagPage, DowntimePage, DocumentsPage, DriversPage,
-} from "@/pages/ModulePages";
+
+const ChangePassword = lazy(() => import("@/pages/ChangePassword"));
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Vehicles = lazy(() => import("@/pages/Vehicles"));
+const VehicleProfile = lazy(() => import("@/pages/VehicleProfile"));
+const DriverProfile = lazy(() => import("@/pages/DriverProfile"));
+const Expenses = lazy(() => import("@/pages/Expenses"));
+const Reports = lazy(() => import("@/pages/Reports"));
+const Compliance = lazy(() => import("@/pages/Compliance"));
+const ComplianceContacts = lazy(() => import("@/pages/ComplianceContacts"));
+const CalendarPage = lazy(() => import("@/pages/CalendarPage"));
+const FleetStatus = lazy(() => import("@/pages/FleetStatus"));
+const UserManagement = lazy(() => import("@/pages/UserManagement"));
+const TestDataAdmin = lazy(() => import("@/pages/TestDataAdmin"));
+const Vendors = lazy(() => import("@/pages/Vendors"));
+const DriverHome = lazy(() => import("@/pages/DriverHome"));
+const OrgSettings = lazy(() => import("@/pages/OrgSettings"));
+const lazyModulePage = (name) => lazy(() => import("@/pages/ModulePages").then((module) => ({ default: module[name] })));
+const TripsPage = lazyModulePage("TripsPage");
+const FuelPage = lazyModulePage("FuelPage");
+const MaintenancePage = lazyModulePage("MaintenancePage");
+const RepairsPage = lazyModulePage("RepairsPage");
+const TyresPage = lazyModulePage("TyresPage");
+const AccidentsPage = lazyModulePage("AccidentsPage");
+const FastagPage = lazyModulePage("FastagPage");
+const DowntimePage = lazyModulePage("DowntimePage");
+const DocumentsPage = lazyModulePage("DocumentsPage");
+const DriversPage = lazyModulePage("DriversPage");
 
 const SplashLoader = () => (
   <div className="flex h-screen items-center justify-center bg-slate-50" role="status" aria-live="polite" aria-label="Checking your session">
@@ -70,6 +79,7 @@ const HomeRoute = () => {
 
 export function AppRouter() {
   return (
+    <Suspense fallback={<SplashLoader />}>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/get-started" element={<GuestOnlyRoute><Onboarding /></GuestOnlyRoute>} />
@@ -103,6 +113,7 @@ export function AppRouter() {
       <Route path="/permission-denied" element={<ProtectedRoute><PermissionDenied /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </Suspense>
   );
 }
 

@@ -254,6 +254,22 @@ async def _ensure_indexes():
     try:
         for coll in TENANT_COLLECTIONS:
             await raw_db[coll].create_index("org_id")
+        # UX-04: normal list queries are tenant scoped first, then filtered and
+        # sorted. These bounded, non-destructive indexes support those shapes.
+        query_indexes = {
+            "vehicles": [[("org_id", 1), ("status", 1), ("vehicle_number", 1)]],
+            "drivers": [[("org_id", 1), ("status", 1), ("name", 1)]],
+            "trips": [[("org_id", 1), ("status", 1), ("date", -1)]],
+            "expenses": [[("org_id", 1), ("status", 1), ("date", -1)]],
+            "fuel_entries": [[("org_id", 1), ("date", -1)]],
+            "fastag_transactions": [[("org_id", 1), ("date", -1)]],
+            "repairs": [[("org_id", 1), ("status", 1), ("date", -1)]],
+            "downtimes": [[("org_id", 1), ("status", 1), ("start_date", -1)]],
+            "documents": [[("org_id", 1), ("expiry_date", 1)]],
+        }
+        for collection, indexes in query_indexes.items():
+            for keys in indexes:
+                await raw_db[collection].create_index(keys)
         await raw_db.users.create_index("username", unique=True)
         await raw_db.organizations.create_index("id", unique=True)
         # AUTH-01: sessions are looked up by token hash; the raw "token" index
