@@ -136,9 +136,15 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         # approved/paid financial figure must not be silently rewritten through a
         # generic PUT; the dedicated ticket action carries authorised cost changes.
         di01_cost_lock = coll == "repairs" and "cost" in payload
+        # OPS-02: an expense's amount is locked once it has been approved or
+        # rejected — an approved/paid financial figure must not be silently
+        # rewritten through a generic PUT; adjustments go through the dedicated
+        # approve action.
+        expense_amount_lock = coll == "expenses" and "amount" in payload
         needs_existing = (
             ("status" in payload and coll in workflow.STATUS_WORKFLOWS)
             or di01_cost_lock
+            or expense_amount_lock
         )
         existing = None
         if needs_existing or user.get("role") == "test":
@@ -153,6 +159,14 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
                 detail=(
                     "This ticket is approved; its cost is locked. Record cost "
                     "through the ticket action, not a generic edit."
+                ),
+            )
+        if expense_amount_lock and existing.get("approval_status") in ("approved", "rejected"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This expense is already reviewed; its amount is locked. "
+                    "Adjust it through the approval action, not a generic edit."
                 ),
             )
         if "status" in payload and coll in workflow.STATUS_WORKFLOWS:
@@ -231,6 +245,12 @@ async def gather_expenses(vehicle_id=None, start_date=None, end_date=None, inclu
                          "amount": amt, "description": f"{tr.get('origin', '')} → {tr.get('destination', '')}",
                          "source": "trips", "source_id": tr.get("id")})
     for ex in await db.expenses.find(q(), {"_id": 0}).to_list(5000):
+        # OPS-02: a rejected or cancelled expense is not an active cost and must
+        # not appear in the reconciliation ledger. Submitted/approved expenses do
+        # (an incurred cost is real before it is formally approved), matching the
+        # pre-OPS-02 behaviour where every manual expense counted.
+        if ex.get("approval_status") == "rejected" or ex.get("status") == "cancelled":
+            continue
         rows.append({"date": ex.get("date"), "vehicle_id": ex["vehicle_id"], "category": ex.get("category", "Miscellaneous"),
                      "amount": ex.get("amount") or 0, "description": ex.get("description") or "",
                      "source": "expenses", "source_id": ex.get("id")})

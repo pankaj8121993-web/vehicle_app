@@ -151,4 +151,15 @@ async def expense_ledger(vehicle_id: str = None, start_date: str = None, end_dat
         "by_vehicle": by_vehicle,
     }
 
-make_crud(router, "expenses", "expenses", ExpenseCreate, module="expenses")
+async def on_expense_create(doc):
+    # OPS-02: a manual expense enters the approval workflow as "submitted". The
+    # approved/paid figures are server-owned and filled by the dedicated
+    # approve/pay actions (routes_settlement); they are protected against a
+    # generic write by TEN-01.
+    doc["approval_status"] = "submitted"
+    doc["approved_amount"] = None
+    doc["paid_amount"] = 0
+    return doc
+
+make_crud(router, "expenses", "expenses", ExpenseCreate, module="expenses",
+          on_create=on_expense_create)

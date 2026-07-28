@@ -4,7 +4,7 @@ import { expenseConfig } from "@/lib/configs";
 import { ExpenseLedger } from "@/components/ExpenseLedger";
 import { ExpenseOverview, ExpenseInsights } from "@/components/ExpenseIntel";
 import { BudgetPanel } from "@/components/BudgetPanel";
-import { PageHeader } from "@/pages/ModulePages";
+import { PageHeader, ExpenseApprovalActions } from "@/pages/ModulePages";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -35,7 +35,7 @@ export default function Expenses() {
           <ExpenseLedger startDate={range.start_date} endDate={range.end_date} />
         </TabsContent>
         <TabsContent value="manual" className="mt-5">
-          <CrudModule {...expenseConfig} fixedFilters={filters} />
+          <CrudModule {...expenseConfig} fixedFilters={filters} rowActions={ExpenseApprovalActions} />
         </TabsContent>
         <TabsContent value="budgets" className="mt-5">
           <BudgetPanel />

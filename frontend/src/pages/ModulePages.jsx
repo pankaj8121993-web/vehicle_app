@@ -107,6 +107,70 @@ const TripActions = ({ row, refresh }) => {
   );
 };
 
+// ---- Expense approval / payment actions (OPS-02) ----
+// Each button calls a dedicated backend action; approval and payment are
+// separate events and only management/admin may perform them.
+export const ExpenseApprovalActions = (row, refresh) => <ExpenseActions row={row} refresh={refresh} />;
+
+const ExpenseActions = ({ row, refresh }) => {
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  const [approvedAmount, setApprovedAmount] = useState(String(row.amount ?? ""));
+  const [payAmount, setPayAmount] = useState("");
+  const s = row.approval_status || "submitted";
+  const outstanding = (row.approved_amount ?? 0) - (row.paid_amount ?? 0);
+
+  const call = async (method, url, body, okMsg) => {
+    try {
+      await api[method](url, body || {});
+      toast.success(okMsg);
+      refresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Action failed");
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {s === "submitted" && (
+        <>
+          <Button data-testid={`approve-expense-${row.id}`} variant="outline" size="sm"
+            className="h-7 rounded-none border-green-300 px-2 text-xs text-green-700 hover:bg-green-50"
+            onClick={() => setApproveOpen(true)}>Approve</Button>
+          <Button data-testid={`reject-expense-${row.id}`} variant="outline" size="sm"
+            className="h-7 rounded-none border-red-300 px-2 text-xs text-red-700 hover:bg-red-50"
+            onClick={() => call("patch", `/expenses/${row.id}/reject`, { reason: "Rejected" }, "Expense rejected")}>Reject</Button>
+        </>
+      )}
+      {s === "approved" && outstanding > 0 && (
+        <Button data-testid={`pay-expense-${row.id}`} variant="outline" size="sm"
+          className="h-7 rounded-none border-blue-300 px-2 text-xs text-blue-700 hover:bg-blue-50"
+          onClick={() => setPayOpen(true)}>Record Payment</Button>
+      )}
+      <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
+        <DialogContent className="rounded-none sm:max-w-sm">
+          <DialogHeader><DialogTitle>Approve Expense</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold uppercase text-slate-500">Approved Amount (₹)</Label>
+            <Input data-testid="approve-expense-amount" type="number" value={approvedAmount} onChange={(e) => setApprovedAmount(e.target.value)} className="rounded-none" />
+            <Button data-testid="approve-expense-confirm" onClick={async () => { await call("patch", `/expenses/${row.id}/approve`, { approved_amount: parseFloat(approvedAmount) }, "Expense approved"); setApproveOpen(false); }} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Approve</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={payOpen} onOpenChange={setPayOpen}>
+        <DialogContent className="rounded-none sm:max-w-sm">
+          <DialogHeader><DialogTitle>Record Payment (outstanding ₹{outstanding})</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold uppercase text-slate-500">Payment Amount (₹)</Label>
+            <Input data-testid="pay-expense-amount" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="rounded-none" />
+            <Button data-testid="pay-expense-confirm" onClick={async () => { await call("post", `/expenses/${row.id}/payments`, { amount: parseFloat(payAmount) }, "Payment recorded"); setPayOpen(false); }} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Record Payment</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
 // ---- Pages ----
 const useDateRange = () => {
   const [range, setRange] = useState({});

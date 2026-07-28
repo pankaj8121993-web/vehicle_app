@@ -294,6 +294,26 @@ class ExpenseCreate(TenantSafeModel):
     amount: float
     description: Optional[str] = None
     file_id: Optional[str] = None
+    # OPS-02: an expense may be attached to a trip (and/or driver) so it rolls up
+    # into that trip's settlement.
+    trip_id: Optional[str] = None
+    driver_id: Optional[str] = None
+
+
+class AdvanceCreate(TenantSafeModel):
+    """OPS-02 — a cash advance given to a driver, optionally against a trip.
+
+    Advances are recovered/adjusted at trip settlement. The financial state
+    (``status``, ``recovered_amount``) is server-owned and set through the
+    dedicated recover action, not this create body.
+    """
+    driver_id: str
+    date: str
+    amount: float
+    trip_id: Optional[str] = None
+    vehicle_id: Optional[str] = None
+    purpose: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class GreasingCreate(TenantSafeModel):

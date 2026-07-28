@@ -219,6 +219,9 @@ RESOURCE_REGISTRY = [
              probe=("amount", 4242)),
     Resource("branches", "/api/branches",
              lambda s: {"name": _uniq("Branch")}),
+    # OPS-02: driver advances (dedicated CRUD).
+    Resource("advances", "/api/advances",
+             lambda s: {"driver_id": s["driver_id"], "date": "2026-01-01", "amount": 500}),
 ]
 
 # Tenant-scoped collections deliberately not in the registry above, each with a
@@ -230,6 +233,11 @@ REGISTRY_EXEMPTIONS = {
     # Covered by the user-administration isolation tests below; /api/users has a
     # different create contract (role + password) and admin-only access.
     "users": "covered by the user-administration isolation tests in this module",
+    # OPS-02: append-only payment/reversal events. No generic CRUD surface — they
+    # are created only through the org-scoped expense payment action, and every
+    # read is filtered by the tenant-scoped db, so isolation is covered by the
+    # expense payment tests (test_expense_settlement) rather than a CRUD probe.
+    "expense_payments": "append-only events created via the org-scoped expense payment action",
 }
 
 
@@ -256,7 +264,10 @@ def tenants():
             t = await oc.post("/api/tyres", json={
                 "vehicle_id": v.json()["id"], "tyre_number": _uniq("T")})
             assert t.status_code == 200, t.text[:200]
-            seeds[org] = {"vehicle_id": v.json()["id"], "tyre_id": t.json()["id"]}
+            d = await oc.post("/api/drivers", json={"name": _uniq("Driver")})
+            assert d.status_code == 200, d.text[:200]
+            seeds[org] = {"vehicle_id": v.json()["id"], "tyre_id": t.json()["id"],
+                          "driver_id": d.json()["id"]}
         return a, b, seeds
 
     a, b, seeds = _run(build())
