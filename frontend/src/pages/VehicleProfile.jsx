@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useLocation, useParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
 import { StatusBadge, ExpiryBadge } from "@/components/StatusBadge";
@@ -44,6 +44,7 @@ const TABS = [
 export default function VehicleProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTicket, setActiveTicket] = useState(null);
@@ -67,7 +68,7 @@ export default function VehicleProfile() {
 
   return (
     <div data-testid="vehicle-profile-page">
-      <Button variant="ghost" size="sm" onClick={() => navigate("/vehicles")} className="mb-4 -ml-2 text-slate-500 hover:text-slate-900" data-testid="back-to-vehicles">
+      <Button variant="ghost" size="sm" onClick={() => navigate(location.state?.from || "/vehicles")} className="mb-4 -ml-2 text-slate-500 hover:text-slate-900" data-testid="back-to-vehicles">
         <ArrowLeft className="mr-1 h-4 w-4" /> All Vehicles
       </Button>
 

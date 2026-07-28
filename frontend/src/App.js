@@ -26,6 +26,8 @@ import TestDataAdmin from "@/pages/TestDataAdmin";
 import Vendors from "@/pages/Vendors";
 import DriverHome from "@/pages/DriverHome";
 import OrgSettings from "@/pages/OrgSettings";
+import PermissionDenied from "@/pages/PermissionDenied";
+import NotFound from "@/pages/NotFound";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import {
   TripsPage, FuelPage, MaintenancePage, RepairsPage, TyresPage,
@@ -33,8 +35,8 @@ import {
 } from "@/pages/ModulePages";
 
 const SplashLoader = () => (
-  <div className="flex h-screen items-center justify-center bg-slate-50">
-    <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+  <div className="flex h-screen items-center justify-center bg-slate-50" role="status" aria-live="polite" aria-label="Checking your session">
+    <Loader2 className="h-8 w-8 animate-spin text-slate-400" aria-hidden="true" />
   </div>
 );
 
@@ -42,13 +44,23 @@ const ProtectedRoute = ({ children, roles, module }) => {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <SplashLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
   if (user.must_change_password && location.pathname !== "/change-password") {
     return <Navigate to="/change-password" replace />;
   }
-  if (roles && !roles.includes(roleTier(user.role))) return <Navigate to="/dashboard" replace />;
-  if (module && user.modules && !user.modules.includes(module)) return <Navigate to="/dashboard" replace />;
+  if (roles && !roles.includes(roleTier(user.role))) {
+    return <Navigate to="/permission-denied" replace state={{ message: "Your role cannot open this page." }} />;
+  }
+  if (module && user.modules && !user.modules.includes(module)) {
+    return <Navigate to="/permission-denied" replace state={{ message: "This module is not available for your account." }} />;
+  }
   return <Layout>{children}</Layout>;
+};
+
+const GuestOnlyRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <SplashLoader />;
+  return user ? <Navigate to="/dashboard" replace /> : children;
 };
 
 const HomeRoute = () => {
@@ -56,13 +68,13 @@ const HomeRoute = () => {
   return roleTier(user?.role) === "driver" ? <DriverHome /> : <Dashboard />;
 };
 
-function AppRouter() {
+export function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
-      <Route path="/get-started" element={<Onboarding />} />
-      <Route path="/demo" element={<DemoEntry />} />
-      <Route path="/login" element={<Login />} />
+      <Route path="/get-started" element={<GuestOnlyRoute><Onboarding /></GuestOnlyRoute>} />
+      <Route path="/demo" element={<GuestOnlyRoute><DemoEntry /></GuestOnlyRoute>} />
+      <Route path="/login" element={<GuestOnlyRoute><Login /></GuestOnlyRoute>} />
       <Route path="/change-password" element={<ProtectedRoute><ChangePassword forced /></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><HomeRoute /></ProtectedRoute>} />
       <Route path="/vehicles" element={<ProtectedRoute module="vehicles"><Vehicles /></ProtectedRoute>} />
@@ -88,7 +100,8 @@ function AppRouter() {
       <Route path="/settings/organisation" element={<ProtectedRoute roles={["management", "admin"]} module="org-settings"><OrgSettings /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute roles={["admin"]} module="users"><UserManagement /></ProtectedRoute>} />
       <Route path="/admin/test-data" element={<ProtectedRoute roles={["admin"]} module="test-data"><TestDataAdmin /></ProtectedRoute>} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/permission-denied" element={<ProtectedRoute><PermissionDenied /></ProtectedRoute>} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }
