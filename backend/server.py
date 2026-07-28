@@ -21,6 +21,7 @@ import routes_search
 import routes_orgs
 import routes_expenses
 import routes_settlement
+import routes_exceptions
 import routes_reconciliation
 from storage import init_storage
 
@@ -51,6 +52,7 @@ api_router.include_router(routes_vendors.router)
 api_router.include_router(routes_search.router)
 api_router.include_router(routes_expenses.router)
 api_router.include_router(routes_settlement.router)
+api_router.include_router(routes_exceptions.router)
 api_router.include_router(routes_reconciliation.router)
 
 app.include_router(api_router)

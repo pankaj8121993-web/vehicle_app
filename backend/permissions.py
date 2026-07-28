@@ -78,6 +78,9 @@ ORG_PERMISSIONS = frozenset({
     "expenses:pay",
     "expenses:reverse_payment",
     "settlements:close",
+    # OPS-05: acknowledge an operational exception (an audit trail, never a way to
+    # hide the underlying unresolved condition).
+    "exceptions:acknowledge",
 })
 
 # Platform-owner actions. Defined for separation; held by NO current role.
@@ -177,6 +180,10 @@ def _build_role_permissions():
                  "expenses:reverse_payment", "settlements:close"):
         for role in (admin, management):
             role.add(perm)
+
+    # OPS-05: acknowledging an exception is an ordinary operational action.
+    for role in (admin, management, data_entry):
+        role.add("exceptions:acknowledge")
 
     return {
         "admin": frozenset(admin),

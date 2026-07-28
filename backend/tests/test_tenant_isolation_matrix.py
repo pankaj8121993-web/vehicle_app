@@ -238,6 +238,10 @@ REGISTRY_EXEMPTIONS = {
     # read is filtered by the tenant-scoped db, so isolation is covered by the
     # expense payment tests (test_expense_settlement) rather than a CRUD probe.
     "expense_payments": "append-only events created via the org-scoped expense payment action",
+    # OPS-05: exception acknowledgements. No CRUD surface — written only through
+    # the org-scoped acknowledge action; the exceptions feed itself is derived
+    # live from already-isolated source collections.
+    "exception_acks": "org-scoped acknowledgements written via the acknowledge action",
 }
 
 
