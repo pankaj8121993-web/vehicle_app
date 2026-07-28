@@ -466,6 +466,31 @@ The correct strategy is therefore not to rebuild the application from zero. The 
 > production backup, integrity scan and reconciliation sign-off.** See
 > `docs/implementation/DATA_INTEGRITY_RELEASE_GATE.md`.
 
+> **Phase 3 — Business Workflow and Operational Completion COMPLETE (repository), 28 July 2026.**
+> FleetFlow's operational workflows are completed, tested and merged into `develop`:
+> **OPS-01** trip, dispatch and allocation lifecycle (PR #19, `dadb078`), **OPS-02**
+> expense approval, payment and trip settlement (PR #20, `724ac1b`), **OPS-03**
+> repairs, maintenance, tyres and downtime (PR #21, `54f8d7d`), **OPS-04** compliance,
+> documents, accidents and insurance claims (PR #22, `6cdff9f`), and **OPS-05**
+> operational exceptions and alerts (PR #23, `940b816`). New modules:
+> `routes_settlement.py`, `routes_exceptions.py`; the trip/expense/claim state
+> machines extend `workflow.py`; `atomicity.swap_field` generalises compare-and-swap.
+> Docs: `TRIP_OPERATIONS.md`, `EXPENSE_AND_SETTLEMENT_WORKFLOW.md`,
+> `MAINTENANCE_OPERATIONS.md`, `COMPLIANCE_AND_CLAIMS.md`, `OPERATIONAL_EXCEPTIONS.md`,
+> `OPERATIONS_RELEASE_GATE.md`, `OPERATIONS_EXECUTION_STATUS.md`. This directly
+> addresses **DATA-01** (trip state machine, allocation-conflict prevention,
+> downtime-blocked dispatch) and completes the approval/settlement, maintenance,
+> claims and exception workflows. Every dedicated action is tenant-scoped,
+> permission-checked, idempotent, compare-and-swap protected and audited; generic
+> status/financial writes are refused. Full backend suite **796 passed, 3 skipped**
+> (+75 OPS real-HTTP tests over the Phase 2 baseline of 712); five critical controls
+> mutation-tested; frontend build green. All existing security and data-integrity
+> tests remain green. Conclusion: **repository operational workflows Complete;
+> production operational data migration Not performed; business UAT Pending;
+> production release Not approved until SEC-004, SEC-005, production data-integrity
+> verification and business UAT are complete.** See
+> `docs/implementation/OPERATIONS_RELEASE_GATE.md`.
+
 | ID | Priority | Finding | Impact | Required resolution |
 | --- | --- | --- | --- | --- |
 | SEC-01 | P0 | Hardcoded default credentials and auto-created users | Credentials in source/test artefacts can lead to unauthorised access. | Remove, rotate, revoke, and create first admin only through verified provisioning. |
