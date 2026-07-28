@@ -1,5 +1,9 @@
 # FleetFlow Performance Evidence
 
+> **UX-R1 recovery note:** authenticated dashboard, vehicle-profile and 10-user
+> HTTP measurements remain unmeasured. The direct MongoDB results below are not
+> API timings and do not satisfy the UX-R1 release gate.
+
 **Date:** 28 July 2026  
 **Database:** local isolated `fleetflow_performance` (never production)  
 **Runs per query:** 30; page size 25; warm local MongoDB  
@@ -52,4 +56,3 @@ PERF_DB=fleetflow_performance PERF_TEARDOWN=true mongosh mongodb://127.0.0.1:270
 | Dashboard critical API p95 ≤ 1,500 ms | Not measured |
 | Authenticated 10-user error rate | Not measured |
 | Lighthouse accessibility/performance/CLS | Not measured |
-
