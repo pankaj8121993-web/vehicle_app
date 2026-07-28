@@ -39,7 +39,9 @@ api.interceptors.response.use(
   (err) => {
     if (err?.response?.status === 401) {
       localStorage.removeItem("fleet_user");
-      if (window.location.pathname !== "/login") {
+      // Anonymous /auth/me is expected while public routes initialise.
+      const publicRoutes = new Set(["/", "/login", "/demo", "/register"]);
+      if (!publicRoutes.has(window.location.pathname)) {
         window.location.href = "/login";
       }
     }

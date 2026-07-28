@@ -1614,3 +1614,10 @@ Create one canonical expense ledger. Operational modules generate linked draft o
 
 > **Release certification**  
 > FleetFlow may be called a global-standard production release only after every P0 item is closed, all release gates are evidenced, financial and tenant reconciliation passes, and no critical/high security issue remains open.
+> **DEMO-01 release-blocking hotfix (2026-07-28):** Business UAT exposed a
+> public-demo authentication handoff failure: the anonymous `/auth/me` probe
+> redirected `/demo` to login before role selection. The contained recovery
+> exempts public routes from that redirect, validates the issued session before
+> navigation, repairs canonical demo identities, and adds versioned,
+> database-locked seeding. See `DEMO_ENVIRONMENT.md` and
+> `DEMO_VERIFICATION_CHECKLIST.md`.

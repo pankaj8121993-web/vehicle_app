@@ -90,9 +90,12 @@ export const AuthProvider = ({ children }) => {
 
   const enterDemo = useCallback(async (role) => {
     const r = await api.post("/demo/enter", { role });
-    setUser(r.data.user);
-    cacheUser(r.data.user);
-    return r.data.user;
+    // Prove the browser stored and sends the newly-issued HttpOnly cookie
+    // before navigating into protected routes.
+    const me = await api.get("/auth/me");
+    setUser(me.data);
+    cacheUser(me.data);
+    return me.data;
   }, []);
 
   return (
