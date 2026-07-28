@@ -1,16 +1,123 @@
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+import uuid
+from datetime import datetime, timezone
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from database import db
 from auth import require_module, require_permission, record_security_event
 from models import TyreCreate, TyreEventCreate, AccidentCreate, FastagTxnCreate, DowntimeCreate, ExpenseCreate
 from helpers import make_crud, gather_expenses, enrich
+from references import validate_references
+import atomicity
+import invariants
 import fastag_simulation
+
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+# OPS-03: tyre lifecycle. A tyre is active on exactly one vehicle; removal /
+# scrapping are terminal for its "on a vehicle" state.
+TYRE_FITTED_STATUSES = ("active",)
+TYRE_TERMINAL_STATUSES = ("scrapped",)
 
 router = APIRouter(tags=["assets"])
 
 
 # ---------- Tyres ----------
-make_crud(router, "tyres", "tyres", TyreCreate, date_field="installation_date", module="tyres")
+async def on_tyre_create(doc):
+    # OPS-03: a physical tyre (identified by tyre_number) cannot be fitted to two
+    # vehicles at once. Refuse a create that would make the same tyre_number
+    # active on a second vehicle.
+    number = doc.get("tyre_number")
+    if number:
+        clash = await db.tyres.find_one(
+            {"tyre_number": number, "status": {"$in": list(TYRE_FITTED_STATUSES)}},
+            {"_id": 0, "id": 1, "vehicle_id": 1},
+        )
+        if clash and clash.get("vehicle_id") != doc.get("vehicle_id"):
+            raise HTTPException(
+                status_code=409,
+                detail="This tyre is already fitted to another vehicle",
+            )
+    return doc
+
+make_crud(router, "tyres", "tyres", TyreCreate, date_field="installation_date",
+          on_create=on_tyre_create, module="tyres")
+
+
+async def _tyre_or_404(tyre_id):
+    tyre = await db.tyres.find_one({"id": tyre_id}, {"_id": 0})
+    if not tyre:
+        raise HTTPException(status_code=404, detail="Tyre not found")
+    return tyre
+
+
+async def _record_tyre_event(tyre, event_type, *, vehicle_id=None, odometer=None,
+                             cost=0, notes=None, user=None):
+    """Append an immutable tyre lifecycle event (history is never rewritten)."""
+    await db.tyre_events.insert_one({
+        "id": str(uuid.uuid4()),
+        "tyre_id": tyre["id"],
+        "vehicle_id": vehicle_id or tyre.get("vehicle_id"),
+        "event_type": event_type,
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "odometer": odometer,
+        "cost": cost or 0,
+        "notes": notes,
+        "created_at": _now_iso(),
+        "created_by": (user or {}).get("user_id"),
+        "is_test_data": tyre.get("is_test_data", False),
+    })
+
+
+@router.patch("/tyres/{tyre_id}/transfer")
+async def transfer_tyre(tyre_id: str, payload: dict = Body(...),
+                        user=Depends(require_permission("tyres:update"))):
+    """Move a fitted tyre to another same-tenant vehicle, preserving history.
+    A removed/scrapped tyre cannot be transferred."""
+    tyre = await _tyre_or_404(tyre_id)
+    if tyre.get("status") in TYRE_TERMINAL_STATUSES or tyre.get("status") == "removed":
+        raise HTTPException(status_code=409,
+                            detail="A removed or scrapped tyre cannot be transferred")
+    to_vehicle = payload.get("to_vehicle_id")
+    if not to_vehicle:
+        raise HTTPException(status_code=400, detail="to_vehicle_id is required")
+    if to_vehicle == tyre.get("vehicle_id"):
+        raise HTTPException(status_code=400, detail="Tyre is already on that vehicle")
+    # Same-org, in-service target vehicle (DI-01 references).
+    await validate_references("tyres", {"vehicle_id": to_vehicle})
+    odo = None
+    if payload.get("odometer") is not None:
+        odo = invariants.odometer(payload["odometer"], field="odometer", allow_none=False)
+    from_vehicle = tyre.get("vehicle_id")
+    await db.tyres.update_one(
+        {"id": tyre_id},
+        {"$set": {"vehicle_id": to_vehicle, "status": "active"}},
+    )
+    await _record_tyre_event(tyre, "transfer", vehicle_id=to_vehicle, odometer=odo,
+                             notes=payload.get("notes"), user=user)
+    await record_security_event("tyre.transfer", user, target_id=tyre_id,
+                                detail={"from_vehicle": from_vehicle, "to_vehicle": to_vehicle})
+    return await db.tyres.find_one({"id": tyre_id}, {"_id": 0})
+
+
+@router.patch("/tyres/{tyre_id}/scrap")
+async def scrap_tyre(tyre_id: str, payload: dict = Body(default={}),
+                     user=Depends(require_permission("tyres:update"))):
+    """Scrap a tyre (terminal). A scrapped tyre cannot be fitted or transferred."""
+    tyre = await _tyre_or_404(tyre_id)
+    if tyre.get("status") == "scrapped":
+        return tyre  # idempotent
+    odo = None
+    if payload.get("odometer") is not None:
+        odo = invariants.odometer(payload["odometer"], field="odometer", allow_none=False)
+    await db.tyres.update_one(
+        {"id": tyre_id},
+        {"$set": {"status": "scrapped", "removal_km": odo, "scrap_reason": payload.get("reason")}},
+    )
+    await _record_tyre_event(tyre, "scrap", odometer=odo, notes=payload.get("reason"), user=user)
+    await record_security_event("tyre.scrap", user, target_id=tyre_id, detail={})
+    return await db.tyres.find_one({"id": tyre_id}, {"_id": 0})
 
 
 async def on_tyre_event_create(doc):
@@ -130,6 +237,44 @@ async def on_downtime_create(doc):
     return doc
 
 make_crud(router, "downtime", "downtimes", DowntimeCreate, date_field="start_date", on_create=on_downtime_create, module="downtime")
+
+
+@router.patch("/downtime/{downtime_id}/close")
+async def close_downtime(downtime_id: str, payload: dict = Body(default={}),
+                         user=Depends(require_permission("downtime:update"))):
+    """Close an open downtime, recording the closure date and reason and
+    computing the downtime days. Idempotent; a closed downtime is terminal and
+    cannot be reopened (WF-01), and closing brings an idle vehicle back to
+    active."""
+    dt = await db.downtimes.find_one({"id": downtime_id}, {"_id": 0})
+    if not dt:
+        raise HTTPException(status_code=404, detail="Downtime not found")
+    if dt.get("status") == "closed":
+        return dt  # idempotent
+    end_date = payload.get("end_date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    invariants.require_date_order(dt.get("start_date"), end_date)
+    try:
+        d1 = datetime.fromisoformat(dt["start_date"])
+        d2 = datetime.fromisoformat(end_date)
+        days = max((d2 - d1).days + 1, 1)
+    except (ValueError, TypeError):
+        days = None
+    updates = {"status": "closed", "end_date": end_date, "days": days,
+               "closure_reason": payload.get("reason")}
+    won = await atomicity.swap_status("downtimes", downtime_id, "open", updates)
+    if not won:
+        return await db.downtimes.find_one({"id": downtime_id}, {"_id": 0})
+    # Bring the vehicle back on the road if it has no other open downtime.
+    other = await db.downtimes.find_one(
+        {"vehicle_id": dt["vehicle_id"], "status": "open"}, {"_id": 0, "id": 1})
+    if not other:
+        await db.vehicles.update_one(
+            {"id": dt["vehicle_id"], "status": "maintenance"},
+            {"$set": {"status": "active"}},
+        )
+    await record_security_event("downtime.close", user, target_id=downtime_id,
+                                detail={"days": days})
+    return await db.downtimes.find_one({"id": downtime_id}, {"_id": 0})
 
 
 # ---------- Expenses ----------
