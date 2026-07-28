@@ -467,6 +467,11 @@ async def advance_repair(repair_id: str, request: Request, payload: dict = Body(
         updates["notes"] = payload["notes"]
     if payload.get("rejection_reason"):
         updates["rejection_reason"] = payload["rejection_reason"]
+    # OPS-03: capture the odometer at completion and forward the vehicle master
+    # (only meaningful once the vehicle is actually back — repaired/closed).
+    if payload.get("odometer") is not None and new_status in ("repaired", "closed"):
+        updates["completion_odometer"] = invariants.odometer(
+            payload["odometer"], field="odometer", allow_none=False)
     # DI-02: compare-and-swap on the ticket's stored status. Of two concurrent
     # requests advancing the same ticket, only the one whose expected status
     # still matches wins — the other gets 409, so a ticket cannot be
@@ -480,9 +485,47 @@ async def advance_repair(repair_id: str, request: Request, payload: dict = Body(
             status_code=409,
             detail="This ticket changed since you loaded it. Reload and retry.",
         )
+    # OPS-03: operational side effects run after the source transition is stored
+    # (write-source-first). Entering active repair takes the vehicle off the road;
+    # completion forwards the odometer. Closing a repair deliberately does NOT
+    # auto-close the downtime — an unresolved downtime must be closed explicitly.
+    if new_status == "in_repair":
+        await _ensure_repair_downtime(repair, user)
+    if updates.get("completion_odometer") is not None:
+        await _update_vehicle_odometer(repair["vehicle_id"], updates["completion_odometer"])
     await record_security_event("repair.transition", user, target_id=repair_id,
                                 detail={"from": current, "to": new_status})
     result = await db.repairs.find_one({"id": repair_id}, {"_id": 0})
     if idem_key:
         await idempotency.store_result(scope, idem_key, result)
     return result
+
+
+async def _ensure_repair_downtime(repair, user):
+    """Take a vehicle off the road when a repair enters the workshop.
+
+    Opens a downtime linked to the repair if none is open, and moves an
+    operational vehicle to 'maintenance'. Idempotent: a second call while a
+    downtime is already open creates nothing.
+    """
+    vid = repair["vehicle_id"]
+    existing = await db.downtimes.find_one(
+        {"vehicle_id": vid, "status": "open"}, {"_id": 0, "id": 1})
+    if not existing:
+        await db.downtimes.insert_one({
+            "id": str(uuid.uuid4()),
+            "vehicle_id": vid,
+            "reason": "breakdown",
+            "start_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "status": "open",
+            "days": None,
+            "repair_id": repair.get("id"),
+            "created_at": _now_iso(),
+            "created_by": user.get("user_id"),
+            "is_test_data": repair.get("is_test_data", False),
+        })
+    # Move an operational vehicle into maintenance (disposed vehicles untouched).
+    await db.vehicles.update_one(
+        {"id": vid, "status": {"$in": ["active", "inactive", "idle"]}},
+        {"$set": {"status": "maintenance"}},
+    )

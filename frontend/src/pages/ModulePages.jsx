@@ -171,6 +171,125 @@ const ExpenseActions = ({ row, refresh }) => {
   );
 };
 
+// ---- Downtime close action (OPS-03) ----
+export const DowntimeCloseAction = (row, refresh) => {
+  if (row.status !== "open") return null;
+  return <DowntimeCloseButton row={row} refresh={refresh} />;
+};
+
+const DowntimeCloseButton = ({ row, refresh }) => {
+  const [open, setOpen] = useState(false);
+  const [endDate, setEndDate] = useState("");
+  const [reason, setReason] = useState("");
+  const close = async () => {
+    try {
+      await api.patch(`/downtime/${row.id}/close`, { end_date: endDate || undefined, reason });
+      toast.success("Downtime closed");
+      setOpen(false);
+      refresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Failed to close downtime");
+    }
+  };
+  return (
+    <>
+      <Button data-testid={`close-downtime-${row.id}`} variant="outline" size="sm"
+        className="h-7 rounded-none border-green-300 px-2 text-xs text-green-700 hover:bg-green-50"
+        onClick={() => setOpen(true)}>Close</Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="rounded-none sm:max-w-sm">
+          <DialogHeader><DialogTitle>Close Downtime</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold uppercase text-slate-500">End Date</Label>
+            <Input data-testid="close-downtime-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-none" />
+            <Label className="text-xs font-semibold uppercase text-slate-500">Reason</Label>
+            <Input data-testid="close-downtime-reason" value={reason} onChange={(e) => setReason(e.target.value)} className="rounded-none" />
+            <Button data-testid="close-downtime-confirm" onClick={close} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Close Downtime</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+};
+
+// ---- Tyre lifecycle actions (OPS-03) ----
+export const TyreActions = (row, refresh) => <TyreActionButtons row={row} refresh={refresh} />;
+
+const TyreActionButtons = ({ row, refresh }) => {
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [scrapOpen, setScrapOpen] = useState(false);
+  const [vehicles, setVehicles] = useState([]);
+  const [toVehicle, setToVehicle] = useState("");
+  const [odo, setOdo] = useState("");
+  const [reason, setReason] = useState("");
+  const terminal = row.status === "scrapped" || row.status === "removed";
+
+  const loadVehicles = async () => {
+    try {
+      const res = await api.get("/vehicles?all=true");
+      setVehicles((res.data || []).filter((v) => v.id !== row.vehicle_id));
+    } catch { /* ignore */ }
+  };
+  const doTransfer = async () => {
+    try {
+      await api.patch(`/tyres/${row.id}/transfer`, { to_vehicle_id: toVehicle, odometer: odo ? parseFloat(odo) : undefined });
+      toast.success("Tyre transferred");
+      setTransferOpen(false);
+      refresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Transfer failed");
+    }
+  };
+  const doScrap = async () => {
+    try {
+      await api.patch(`/tyres/${row.id}/scrap`, { odometer: odo ? parseFloat(odo) : undefined, reason });
+      toast.success("Tyre scrapped");
+      setScrapOpen(false);
+      refresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Scrap failed");
+    }
+  };
+  if (terminal) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      <Button data-testid={`transfer-tyre-${row.id}`} variant="outline" size="sm"
+        className="h-7 rounded-none border-blue-300 px-2 text-xs text-blue-700 hover:bg-blue-50"
+        onClick={() => { setTransferOpen(true); loadVehicles(); }}>Transfer</Button>
+      <Button data-testid={`scrap-tyre-${row.id}`} variant="outline" size="sm"
+        className="h-7 rounded-none border-red-300 px-2 text-xs text-red-700 hover:bg-red-50"
+        onClick={() => setScrapOpen(true)}>Scrap</Button>
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className="rounded-none sm:max-w-sm">
+          <DialogHeader><DialogTitle>Transfer Tyre</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold uppercase text-slate-500">To Vehicle</Label>
+            <Select value={toVehicle} onValueChange={setToVehicle}>
+              <SelectTrigger data-testid="transfer-tyre-vehicle" className="rounded-none"><SelectValue placeholder="Select vehicle" /></SelectTrigger>
+              <SelectContent>{vehicles.map((v) => <SelectItem key={v.id} value={v.id}>{v.vehicle_number}</SelectItem>)}</SelectContent>
+            </Select>
+            <Label className="text-xs font-semibold uppercase text-slate-500">Odometer</Label>
+            <Input data-testid="transfer-tyre-odo" type="number" value={odo} onChange={(e) => setOdo(e.target.value)} className="rounded-none" />
+            <Button data-testid="transfer-tyre-confirm" onClick={doTransfer} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Transfer</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={scrapOpen} onOpenChange={setScrapOpen}>
+        <DialogContent className="rounded-none sm:max-w-sm">
+          <DialogHeader><DialogTitle>Scrap Tyre</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold uppercase text-slate-500">Odometer</Label>
+            <Input data-testid="scrap-tyre-odo" type="number" value={odo} onChange={(e) => setOdo(e.target.value)} className="rounded-none" />
+            <Label className="text-xs font-semibold uppercase text-slate-500">Reason</Label>
+            <Input data-testid="scrap-tyre-reason" value={reason} onChange={(e) => setReason(e.target.value)} className="rounded-none" />
+            <Button data-testid="scrap-tyre-confirm" onClick={doScrap} className="w-full rounded-none bg-red-700 hover:bg-red-800">Scrap Tyre</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
 // ---- Pages ----
 const useDateRange = () => {
   const [range, setRange] = useState({});
@@ -263,7 +382,7 @@ export const TyresPage = () => {
   return (
     <div><PageHeader title="Tyre Management" subtitle="Tyre master with punctures, rotations, retreading and replacements" />
       <PeriodFilter testIdPrefix="tyres-period" onChange={setRange} />
-      <CrudModule {...tyreConfig} fixedFilters={filters} />
+      <CrudModule {...tyreConfig} fixedFilters={filters} rowActions={TyreActions} />
       <h2 className="mb-3 mt-10 text-xl font-bold tracking-tight text-slate-900">Tyre Events</h2>
       <CrudModule {...tyreEventConfig} fixedFilters={filters} /></div>
   );
@@ -339,7 +458,7 @@ export const DowntimePage = () => {
   return (
     <div><PageHeader title="Vehicle Downtime" subtitle="Track non-operational periods and reasons" />
       <PeriodFilter testIdPrefix="downtime-period" onChange={setRange} />
-      <CrudModule {...downtimeConfig} fixedFilters={filters} /></div>
+      <CrudModule {...downtimeConfig} fixedFilters={filters} rowActions={DowntimeCloseAction} /></div>
   );
 };
 
