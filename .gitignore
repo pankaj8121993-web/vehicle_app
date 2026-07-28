@@ -130,3 +130,6 @@ frontend/node_modules/.cache/default-development/9.pack
 frontend/node_modules/.cache/default-development/22.pack
 frontend/node_modules/.cache/default-development/10.pack
 frontend/node_modules/.cache/default-development/2.pack
+frontend/e2e/.role-matrix-state.json
+frontend/playwright-report/
+frontend/test-results/

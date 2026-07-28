@@ -56,6 +56,11 @@ export default function FleetStatus() {
     try {
       const r = await api.get("/fleet-status");
       setData(r.data);
+    } catch {
+      // A route change or logout may cancel/reject an in-flight refresh.
+      // The page already has an explicit no-data state; do not leak an
+      // unhandled promise rejection into the browser.
+      setData((current) => current);
     } finally { setLoading(false); setRefreshing(false); }
   }, []);
 
