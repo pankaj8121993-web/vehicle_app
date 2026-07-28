@@ -2,12 +2,17 @@
 import random
 import secrets
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
+from database import TENANT_COLLECTIONS, raw_db
 from passlib.hash import bcrypt
-from database import raw_db, TENANT_COLLECTIONS
+from pymongo import ReturnDocument
 
 DEMO_ORG_ID = "org-fleetflow-demo"
+DEMO_SEED_VERSION = 2
 RESET_HOURS = 12
+LOCK_SECONDS = 90
+LOCK_WAIT_SECONDS = 8
 
 DEMO_USERS = [
     ("org_admin", "Aarav Mehta", "Organisation Super Admin"),
@@ -62,17 +67,100 @@ async def _wipe_demo_data():
 
 
 async def ensure_demo(force: bool = False):
-    org = await raw_db.organizations.find_one({"id": DEMO_ORG_ID})
+    import asyncio
+
     now = datetime.now(timezone.utc)
-    if org and not force:
-        seeded = org.get("demo_seeded_at")
+    org = await raw_db.organizations.find_one({"id": DEMO_ORG_ID})
+    if _seed_is_current(org, now, force):
+        await _repair_demo_users(now)
+        return
+
+    owner = str(uuid.uuid4())
+    deadline = now + timedelta(seconds=LOCK_WAIT_SECONDS)
+    while datetime.now(timezone.utc) < deadline:
+        current = datetime.now(timezone.utc)
         try:
-            age_ok = seeded and (now - datetime.fromisoformat(seeded)) < timedelta(hours=RESET_HOURS)
-        except ValueError:
-            age_ok = False
-        if age_ok:
+            lock = await raw_db.demo_seed_state.find_one_and_update(
+                {"_id": DEMO_ORG_ID, "$or": [
+                    {"locked_until": {"$lte": current}},
+                    {"locked_until": {"$exists": False}},
+                ]},
+                {"$set": {"owner": owner, "status": "running",
+                          "locked_until": current + timedelta(seconds=LOCK_SECONDS),
+                          "started_at": current}},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+        except Exception as exc:
+            # A concurrent upsert can lose the unique _id race; treat that as
+            # "lock held" and wait, while preserving unexpected failures.
+            if "duplicate key" not in str(exc).lower():
+                raise
+            lock = None
+        if lock and lock.get("owner") == owner:
+            break
+        await asyncio.sleep(0.2)
+        org = await raw_db.organizations.find_one({"id": DEMO_ORG_ID})
+        if _seed_is_current(org, datetime.now(timezone.utc), False):
+            await _repair_demo_users(datetime.now(timezone.utc))
             return
-    await _seed(now)
+    else:
+        raise RuntimeError("Demo preparation is busy")
+
+    try:
+        await _seed(datetime.now(timezone.utc))
+        await raw_db.demo_seed_state.update_one(
+            {"_id": DEMO_ORG_ID, "owner": owner},
+            {"$set": {"status": "complete", "completed_at": datetime.now(timezone.utc)},
+             "$unset": {"locked_until": "", "error": ""}},
+        )
+    except Exception:
+        await raw_db.demo_seed_state.update_one(
+            {"_id": DEMO_ORG_ID, "owner": owner},
+            {"$set": {"status": "failed", "failed_at": datetime.now(timezone.utc)},
+             "$unset": {"locked_until": ""}},
+        )
+        raise
+
+
+def _seed_is_current(org, now, force=False):
+    if not org or force or not org.get("is_demo"):
+        return False
+    if org.get("demo_seed_version") != DEMO_SEED_VERSION:
+        return False
+    if org.get("demo_seed_status") != "complete":
+        return False
+    try:
+        return (now - datetime.fromisoformat(org["demo_seeded_at"])) < timedelta(hours=RESET_HOURS)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+async def _repair_demo_users(now):
+    for role, name, designation in DEMO_USERS:
+        username = f"demo_{role}"
+        existing = await raw_db.users.find_one({"username": username})
+        if existing and not (
+            existing.get("is_demo")
+            or existing.get("created_by") == "demo_seed"
+            or existing.get("org_id") == DEMO_ORG_ID
+        ):
+            raise RuntimeError(f"Canonical demo username conflict: {username}")
+        canonical = {
+            "org_id": DEMO_ORG_ID, "username": username,
+            "email": f"{username}@demo.fleetflow.app",
+            "role": role, "full_name": name, "designation": designation,
+            "is_active": True, "is_demo": True, "must_change_password": False,
+            "created_by": "demo_seed", "is_platform_admin": False,
+            "platform_role": None,
+        }
+        if existing:
+            await raw_db.users.update_one({"_id": existing["_id"]}, {"$set": canonical})
+        else:
+            await raw_db.users.insert_one({
+                "id": str(uuid.uuid4()), "password_hash": bcrypt.hash(secrets.token_urlsafe(32)),
+                "created_at": now.isoformat(), **canonical,
+            })
 
 
 async def _seed(now):
@@ -91,24 +179,13 @@ async def _seed(now):
             "currency": "INR", "timezone": "Asia/Kolkata", "fy_start_month": 4,
             "is_demo": True, "is_default": False, "onboarding_completed": True,
             "compliance_docs": ["RC", "Insurance", "Fitness", "Permit", "PUC", "Road Tax"],
-            "demo_seeded_at": now.isoformat(),
+            "demo_seeded_at": now.isoformat(), "demo_seed_version": DEMO_SEED_VERSION,
+            "demo_seed_status": "seeding",
         }},
         upsert=True,
     )
 
-    # Demo users (created once, passwords never exposed)
-    for role, name, designation in DEMO_USERS:
-        username = f"demo_{role}"
-        existing = await raw_db.users.find_one({"username": username})
-        if not existing:
-            await raw_db.users.insert_one({
-                "id": str(uuid.uuid4()), "org_id": DEMO_ORG_ID, "username": username,
-                "email": f"{username}@demo.fleetflow.app",
-                "password_hash": bcrypt.hash(secrets.token_urlsafe(16)),
-                "role": role, "full_name": name, "designation": designation,
-                "is_active": True, "is_demo": True, "must_change_password": False,
-                "created_at": now.isoformat(), "created_by": "demo_seed",
-            })
+    await _repair_demo_users(now)
 
     def base(extra=None):
         d = {"id": str(uuid.uuid4()), "org_id": DEMO_ORG_ID, "is_test_data": False,
@@ -250,7 +327,7 @@ async def _seed(now):
         "vehicle_id": vehicle_ids[2], "driver_id": driver_ids[2],
         "date": _iso(now - timedelta(days=35)), "location": "Mumbai-Pune Expressway, Khalapur",
         "description": "Minor rear-end collision at toll queue", "fir_number": "FIR/2026/04512",
-        "insurance_claim_number": "CLM-88231", "claim_status": "Filed",
+        "insurance_claim_number": "CLM-88231", "claim_status": "reported",
         "repair_cost": 42000, "claim_amount": 38000, "settlement_amount": 0,
     }))
 
@@ -259,6 +336,10 @@ async def _seed(now):
         "vehicle_id": vehicle_ids[4], "reason": "service", "start_date": _iso(now - timedelta(days=2)),
         "end_date": None, "status": "open",
     }))
+    await raw_db.vehicles.update_one(
+        {"id": vehicle_ids[4], "org_id": DEMO_ORG_ID},
+        {"$set": {"status": "unavailable"}},
+    )
 
     # Manual expenses
     for cat, desc, amt, off in [
@@ -278,3 +359,8 @@ async def _seed(now):
     month = now.strftime("%Y-%m")
     for cat, amt in [("Fuel", 90000), ("Service", 25000), ("Repair", 30000), ("Tyres", 15000), ("Trip", 20000)]:
         await raw_db.budgets.insert_one(base({"category": cat, "month": month, "amount": amt}))
+    await raw_db.organizations.update_one(
+        {"id": DEMO_ORG_ID, "is_demo": True},
+        {"$set": {"demo_seed_status": "complete", "demo_seed_version": DEMO_SEED_VERSION,
+                  "demo_seeded_at": now.isoformat()}},
+    )

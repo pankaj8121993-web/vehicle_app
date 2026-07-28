@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/pages/Landing";
 import { toast } from "sonner";
+import api from "@/lib/api";
 import {
   ShieldCheck, Crown, Truck, ClipboardList, Wrench, Car,
   Calculator, FileSearch, ArrowLeft, ArrowRight, Loader2,
@@ -25,6 +26,25 @@ export default function DemoEntry() {
   const { enterDemo } = useAuth();
   const [selected, setSelected] = useState("owner");
   const [loading, setLoading] = useState(false);
+  const [roles, setRoles] = useState([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [rolesError, setRolesError] = useState("");
+
+  const loadRoles = async () => {
+    setRolesLoading(true);
+    setRolesError("");
+    try {
+      const response = await api.get("/demo/roles");
+      const available = new Set(response.data.map((item) => item.role));
+      setRoles(ROLE_CARDS.filter((item) => available.has(item.role)));
+    } catch {
+      setRolesError("Demo roles could not be loaded.");
+    } finally {
+      setRolesLoading(false);
+    }
+  };
+
+  useEffect(() => { loadRoles(); }, []);
 
   const enter = async () => {
     setLoading(true);
@@ -59,10 +79,22 @@ export default function DemoEntry() {
           Changes stay inside the demo and reset periodically.
         </p>
 
+        {rolesLoading && (
+          <div className="mt-10 flex items-center gap-2 text-sm text-slate-400" role="status">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading demo roles…
+          </div>
+        )}
+        {rolesError && (
+          <div className="mt-10 text-sm text-rose-300" role="alert">
+            {rolesError}{" "}
+            <button className="font-bold underline" onClick={loadRoles}>Retry</button>
+          </div>
+        )}
         <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {ROLE_CARDS.map((r) => (
+          {roles.map((r) => (
             <button
               key={r.role}
+              disabled={loading}
               onClick={() => setSelected(r.role)}
               data-testid={`demo-role-${r.role}`}
               className={`group border p-5 text-left transition-all ${
@@ -79,7 +111,7 @@ export default function DemoEntry() {
         </div>
 
         <div className="mt-10 flex flex-wrap items-center gap-4">
-          <Button onClick={enter} disabled={loading} data-testid="enter-demo-btn"
+          <Button onClick={enter} disabled={loading || rolesLoading || !!rolesError} data-testid="enter-demo-btn"
             className="group rounded-none bg-amber-400 px-8 py-6 text-sm font-bold text-slate-950 hover:bg-amber-300">
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {loading ? "Preparing demo…" : "Enter Demo"}

@@ -1,15 +1,21 @@
 """Organisation onboarding, profile, branches, setup checklist and demo environment."""
 import re
 import uuid
-import secrets
-from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
-from passlib.hash import bcrypt
-from database import db, raw_db, current_org_id
-from auth import require_user, require_permission, create_session, set_session_cookies, ROLES, allowed_modules
-from models import OrgRegister
-from tenant_policy import reject_protected_fields
+from datetime import datetime, timezone
+
 import demo_seed
+from auth import (
+    allowed_modules,
+    create_session,
+    require_permission,
+    require_user,
+    set_session_cookies,
+)
+from database import db, raw_db
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
+from models import OrgRegister
+from passlib.hash import bcrypt
+from tenant_policy import reject_protected_fields
 
 router = APIRouter(tags=["organisations"])
 
@@ -275,10 +281,23 @@ async def enter_demo(request: Request, response: Response, payload: dict = Body(
     role = payload.get("role")
     if role not in DEMO_ROLES:
         raise HTTPException(status_code=400, detail="Invalid demo role")
-    await demo_seed.ensure_demo()
-    duser = await raw_db.users.find_one({"username": f"demo_{role}", "is_demo": True})
-    if not duser:
-        raise HTTPException(status_code=500, detail="Demo user not available")
+    try:
+        await demo_seed.ensure_demo()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Demo is being prepared. Please retry shortly.")
+    org = await raw_db.organizations.find_one({
+        "id": demo_seed.DEMO_ORG_ID, "is_demo": True, "demo_seed_status": "complete",
+    })
+    duser = await raw_db.users.find_one({"username": f"demo_{role}"})
+    invalid = not duser or any((
+        duser.get("org_id") != demo_seed.DEMO_ORG_ID,
+        duser.get("role") != role,
+        not duser.get("is_active"),
+        not duser.get("is_demo"),
+        duser.get("must_change_password", False),
+    ))
+    if not org or invalid:
+        raise HTTPException(status_code=503, detail="Demo identity is unavailable. Please retry shortly.")
     token, csrf = await create_session(duser["id"], request=request)
     set_session_cookies(response, token, csrf)
     return {
