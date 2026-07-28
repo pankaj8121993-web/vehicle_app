@@ -12,7 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, ChevronLeft, ChevronRight, ArrowDown, ArrowUp } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
@@ -156,6 +156,7 @@ export const CrudModule = ({
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -166,7 +167,9 @@ export const CrudModule = ({
   const [options, setOptions] = useState({ vehicle: [], driver: [], tyre: [], vendor: [] });
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const PAGE_SIZE = 25;
+  const [pageSize, setPageSize] = useState(25);
+  const [sortBy, setSortBy] = useState("");
+  const [sortDir, setSortDir] = useState("asc");
 
   const { user } = useAuth();
   const role = user?.role;
@@ -179,7 +182,11 @@ export const CrudModule = ({
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/${endpoint}`, { params: { ...JSON.parse(fixedJson), page, page_size: PAGE_SIZE } });
+      const res = await api.get(`/${endpoint}`, { params: {
+        ...JSON.parse(fixedJson), page, page_size: pageSize,
+        search: debouncedSearch || undefined,
+        sort_by: sortBy || undefined, sort_dir: sortBy ? sortDir : undefined,
+      } });
       if (Array.isArray(res.data)) {
         setItems(res.data);
         setTotal(res.data.length);
@@ -192,9 +199,16 @@ export const CrudModule = ({
     } finally {
       setLoading(false);
     }
-  }, [endpoint, fixedJson, title, page]);
+  }, [endpoint, fixedJson, title, page, pageSize, debouncedSearch, sortBy, sortDir]);
 
   useEffect(() => { refresh(); }, [refresh, refreshKey]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setDebouncedSearch(search.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   const neededOptionTypes = useMemo(
     () => [...new Set(fields.filter((f) => ["vehicle", "driver", "tyre", "vendor_picker"].includes(f.type)).map((f) => f.type))],
@@ -302,9 +316,14 @@ export const CrudModule = ({
     setDeleteTarget(null);
   };
 
-  const filtered = search
-    ? items.filter((it) => JSON.stringify(it).toLowerCase().includes(search.toLowerCase()))
-    : items;
+  const changeSort = (field) => {
+    setPage(1);
+    if (sortBy === field) setSortDir((direction) => direction === "asc" ? "desc" : "asc");
+    else {
+      setSortBy(field);
+      setSortDir("asc");
+    }
+  };
 
   return (
     <div data-testid={`${prefix}-module`}>
@@ -331,8 +350,11 @@ export const CrudModule = ({
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
               {columns.map((c) => (
-                <th key={c.key} className={`px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500 ${["currency", "number"].includes(c.type) ? "text-right" : "text-left"}`}>
-                  {c.label}
+                <th key={c.key} aria-sort={sortBy === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className={`px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500 ${["currency", "number"].includes(c.type) ? "text-right" : "text-left"}`}>
+                  <button type="button" className="inline-flex min-h-7 items-center gap-1 hover:text-slate-900" onClick={() => changeSort(c.key)} data-testid={`${prefix}-sort-${c.key}`}>
+                    {c.label}
+                    {sortBy === c.key && (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+                  </button>
                 </th>
               ))}
               <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
@@ -341,10 +363,12 @@ export const CrudModule = ({
           <tbody>
             {loading ? (
               <tr><td colSpan={columns.length + 1} className="px-3 py-10 text-center text-slate-400"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={columns.length + 1} className="px-3 py-10 text-center text-sm text-slate-400" data-testid={`${prefix}-empty-state`}>{emptyText || `No ${title.toLowerCase()} records yet.`}</td></tr>
+            ) : items.length === 0 ? (
+              <tr><td colSpan={columns.length + 1} className="px-3 py-10 text-center text-sm text-slate-400" data-testid={`${prefix}-empty-state`}>
+                {debouncedSearch ? `No ${title.toLowerCase()} match “${debouncedSearch}”.` : emptyText || `No ${title.toLowerCase()} records yet.`}
+              </td></tr>
             ) : (
-              filtered.map((row) => (
+              items.map((row) => (
                 <tr
                   key={row.id}
                   data-testid={`${prefix}-row-${row.id}`}
@@ -378,16 +402,20 @@ export const CrudModule = ({
         </table>
       </div>
 
-      {total > PAGE_SIZE && (
+      {(total > pageSize || pageSize !== 25) && (
         <div className="flex items-center justify-between border border-t-0 border-slate-200 bg-white px-3 py-2">
           <span className="text-xs text-slate-500" data-testid={`${prefix}-pagination-info`}>
-            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+            Showing {total ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, total)} of {total}
           </span>
-          <div className="flex gap-1">
+          <div className="flex items-center gap-2">
+            <Label htmlFor={`${prefix}-page-size`} className="sr-only">Rows per page</Label>
+            <select id={`${prefix}-page-size`} value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="h-7 border border-slate-200 bg-white px-2 text-xs" data-testid={`${prefix}-page-size`}>
+              {[25, 50, 100].map((size) => <option key={size} value={size}>{size} rows</option>)}
+            </select>
             <Button data-testid={`${prefix}-prev-page`} variant="outline" size="sm" className="h-7 rounded-none px-2" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
               <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
-            <Button data-testid={`${prefix}-next-page`} variant="outline" size="sm" className="h-7 rounded-none px-2" disabled={page * PAGE_SIZE >= total} onClick={() => setPage((p) => p + 1)}>
+            <Button data-testid={`${prefix}-next-page`} variant="outline" size="sm" className="h-7 rounded-none px-2" disabled={page * pageSize >= total} onClick={() => setPage((p) => p + 1)}>
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>

@@ -11,6 +11,7 @@ import file_policy
 import idempotency
 import invariants
 from references import validate_references
+from list_query import add_safe_search, page_response, pagination, sort_spec
 import workflow
 from storage import put_object, get_object, APP_NAME
 
@@ -47,17 +48,18 @@ async def list_vehicles(request: Request, user=Depends(require_user)):
         q = {"status": p["status"]}
     if not include_test:
         q["is_test_data"] = {"$ne": True}
+    add_safe_search(q, "vehicles", p.get("search"))
     # In test mode, ONLY show test vehicles
     if user.get("role") == "test":
         q.pop("is_test_data", None)
         q["is_test_data"] = True
     if p.get("all") == "true":
         return await db.vehicles.find(q, {"_id": 0}).sort("vehicle_number", 1).to_list(3000)
-    page = max(int(p.get("page", 1)), 1)
-    page_size = min(max(int(p.get("page_size", 25)), 1), 200)
+    page, page_size = pagination(p)
+    sort_field, sort_direction = sort_spec(p, {"vehicle_number", "make", "model", "status", "current_odometer", "created_at"}, "vehicle_number", 1)
     total = await db.vehicles.count_documents(q)
-    items = await db.vehicles.find(q, {"_id": 0}).sort("vehicle_number", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    items = await db.vehicles.find(q, {"_id": 0}).sort(sort_field, sort_direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    return page_response(items, total, page, page_size)
 
 
 @router.post("/vehicles")
@@ -364,16 +366,17 @@ async def list_drivers(request: Request, user=Depends(require_module("drivers"))
         q["is_test_data"] = True
     elif not include_test:
         q["is_test_data"] = {"$ne": True}
+    add_safe_search(q, "drivers", p.get("search"))
     vmap = {v["id"]: v.get("vehicle_number", "") for v in await db.vehicles.find({}, {"_id": 0, "id": 1, "vehicle_number": 1}).to_list(3000)}
     if p.get("all") == "true":
         drivers = await db.drivers.find(q, {"_id": 0}).sort("name", 1).to_list(3000)
         return await _enrich_drivers(drivers, vmap)
-    page = max(int(p.get("page", 1)), 1)
-    page_size = min(max(int(p.get("page_size", 25)), 1), 200)
+    page, page_size = pagination(p)
+    sort_field, sort_direction = sort_spec(p, {"name", "employee_number", "mobile", "license_number", "license_expiry", "status", "created_at"}, "name", 1)
     total = await db.drivers.count_documents(q)
-    drivers = await db.drivers.find(q, {"_id": 0}).sort("name", 1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    drivers = await db.drivers.find(q, {"_id": 0}).sort(sort_field, sort_direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
     drivers = await _enrich_drivers(drivers, vmap)
-    return {"items": drivers, "total": total, "page": page, "page_size": page_size}
+    return page_response(drivers, total, page, page_size)
 
 
 @router.post("/drivers")

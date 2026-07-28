@@ -8,6 +8,7 @@ import workflow
 import invariants
 import idempotency
 from references import validate_references
+from list_query import SEARCH_FIELDS, add_safe_search, page_response, pagination, sort_spec
 
 
 # DI-01: repair ticket states in which the cost figure is authorised and locked
@@ -61,6 +62,7 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         if p.get("end_date"):
             q.setdefault(date_field, {})
             q[date_field]["$lte"] = p["end_date"]
+        add_safe_search(q, coll, p.get("search"))
         # is_test_data default-exclude (admins can opt-in via ?include_test=true)
         include_test = (p.get("include_test") or "").lower() == "true"
         if not (include_test and user.get("role") == "admin"):
@@ -68,11 +70,12 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         if p.get("all") == "true":
             items = await db[coll].find(q, {"_id": 0}).sort(date_field, -1).to_list(3000)
             return await enrich(items)
-        page = max(int(p.get("page", 1)), 1)
-        page_size = min(max(int(p.get("page_size", 25)), 1), 200)
+        page, page_size = pagination(p)
+        allowed_sorts = set(SEARCH_FIELDS.get(coll, ())) | {date_field, "status", "category", "amount", "created_at"}
+        sort_field, sort_direction = sort_spec(p, allowed_sorts, date_field)
         total = await db[coll].count_documents(q)
-        items = await db[coll].find(q, {"_id": 0}).sort(date_field, -1).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
-        return {"items": await enrich(items), "total": total, "page": page, "page_size": page_size}
+        items = await db[coll].find(q, {"_id": 0}).sort(sort_field, sort_direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+        return page_response(await enrich(items), total, page, page_size)
 
     @router.post(f"/{path}")
     async def create_item(payload: CreateModel, request: Request, user=Depends(require_permission(f"{perm}:create"))):
