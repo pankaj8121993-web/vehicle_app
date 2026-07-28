@@ -141,10 +141,17 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
         # rewritten through a generic PUT; adjustments go through the dedicated
         # approve action.
         expense_amount_lock = coll == "expenses" and "amount" in payload
+        # OPS-04: the claim lifecycle is driven only by the dedicated claim action.
+        # A generic PUT may not set claim_status at all, and may not rewrite the
+        # claim's financial figures once the claim is closed.
+        accident_claim_fields = {"claim_amount", "approved_amount", "settlement_amount"}
+        accident_generic_claim = coll == "accidents" and "claim_status" in payload
+        accident_financial = coll == "accidents" and bool(accident_claim_fields & set(payload))
         needs_existing = (
             ("status" in payload and coll in workflow.STATUS_WORKFLOWS)
             or di01_cost_lock
             or expense_amount_lock
+            or accident_financial
         )
         existing = None
         if needs_existing or user.get("role") == "test":
@@ -168,6 +175,19 @@ def make_crud(router: APIRouter, path: str, coll: str, CreateModel, date_field: 
                     "This expense is already reviewed; its amount is locked. "
                     "Adjust it through the approval action, not a generic edit."
                 ),
+            )
+        if accident_generic_claim:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Claim status is driven by the dedicated claim action, not a "
+                    "generic update. Use PATCH /accidents/{id}/claim."
+                ),
+            )
+        if accident_financial and existing.get("claim_status") == "closed":
+            raise HTTPException(
+                status_code=409,
+                detail="This claim is closed; its financial figures are locked.",
             )
         if "status" in payload and coll in workflow.STATUS_WORKFLOWS:
             workflow.enforce_generic_status_change(coll, existing, payload, role=user.get("role"))

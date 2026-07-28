@@ -290,6 +290,72 @@ const TyreActionButtons = ({ row, refresh }) => {
   );
 };
 
+// ---- Accident claim actions (OPS-04) ----
+const CLAIM_NEXT = {
+  reported: ["evidence_collected"],
+  evidence_collected: ["claim_submitted"],
+  claim_submitted: ["under_survey"],
+  under_survey: ["approved", "rejected"],
+  approved: ["settled"],
+  settled: ["closed"],
+  rejected: ["closed"],
+  closed: [],
+};
+const CLAIM_LABEL = {
+  evidence_collected: "Collect Evidence", claim_submitted: "Submit Claim",
+  under_survey: "Send to Survey", approved: "Approve", rejected: "Reject",
+  settled: "Record Settlement", closed: "Close Claim",
+};
+
+export const AccidentClaimActions = (row, refresh) => <ClaimActions row={row} refresh={refresh} />;
+
+const ClaimActions = ({ row, refresh }) => {
+  const [amtOpen, setAmtOpen] = useState(false);
+  const [target, setTarget] = useState(null);
+  const [amount, setAmount] = useState("");
+  const nexts = CLAIM_NEXT[row.claim_status || "reported"] || [];
+
+  const go = async (to, body) => {
+    try {
+      await api.patch(`/accidents/${row.id}/claim`, { status: to, ...(body || {}) });
+      toast.success(`Claim: ${to}`);
+      refresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Claim action failed");
+    }
+  };
+  const click = (to) => {
+    if (to === "approved" || to === "settled") { setTarget(to); setAmount(""); setAmtOpen(true); }
+    else go(to);
+  };
+  const confirmAmt = async () => {
+    const body = target === "approved" ? { approved_amount: parseFloat(amount) } : { settlement_amount: parseFloat(amount) };
+    await go(target, body);
+    setAmtOpen(false);
+  };
+
+  if (!nexts.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {nexts.map((to) => (
+        <Button key={to} data-testid={`claim-${to}-${row.id}`} variant="outline" size="sm"
+          className={`h-7 rounded-none px-2 text-xs ${to === "rejected" ? "border-red-300 text-red-700 hover:bg-red-50" : "border-slate-300 text-slate-700 hover:bg-slate-100"}`}
+          onClick={() => click(to)}>{CLAIM_LABEL[to]}</Button>
+      ))}
+      <Dialog open={amtOpen} onOpenChange={setAmtOpen}>
+        <DialogContent className="rounded-none sm:max-w-sm">
+          <DialogHeader><DialogTitle>{target === "approved" ? "Approve Claim" : "Record Settlement"}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold uppercase text-slate-500">{target === "approved" ? "Approved Amount (₹)" : "Settlement Amount (₹)"}</Label>
+            <Input data-testid="claim-amount-input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="rounded-none" />
+            <Button data-testid="claim-amount-confirm" onClick={confirmAmt} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Confirm</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
 // ---- Pages ----
 const useDateRange = () => {
   const [range, setRange] = useState({});
@@ -390,7 +456,7 @@ export const TyresPage = () => {
 
 export const AccidentsPage = () => (
   <div><PageHeader title="Accident Register" subtitle="Accident records, FIR, insurance claims and settlements" />
-    <CrudModule {...accidentConfig} /></div>
+    <CrudModule {...accidentConfig} rowActions={AccidentClaimActions} /></div>
 );
 
 export const FastagPage = () => {
