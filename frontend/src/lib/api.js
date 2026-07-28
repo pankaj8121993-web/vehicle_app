@@ -39,11 +39,10 @@ api.interceptors.response.use(
   (err) => {
     if (err?.response?.status === 401) {
       localStorage.removeItem("fleet_user");
-      // Anonymous /auth/me is expected while public routes initialise.
-      const publicRoutes = new Set(["/", "/login", "/demo", "/register"]);
-      if (!publicRoutes.has(window.location.pathname)) {
-        window.location.href = "/login";
-      }
+      // Let the auth provider clear its state. Route guards decide whether the
+      // current page is protected, avoiding redirect loops and keeping public
+      // and unknown-route fallbacks stable during anonymous hydration.
+      window.dispatchEvent(new CustomEvent("fleetflow:unauthorized"));
     }
     return Promise.reject(err);
   }

@@ -45,6 +45,15 @@ export const AuthProvider = ({ children }) => {
     revalidate().finally(() => setLoading(false));
   }, [revalidate]);
 
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setUser(null);
+      cacheUser(null);
+    };
+    window.addEventListener("fleetflow:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("fleetflow:unauthorized", onUnauthorized);
+  }, []);
+
   // AUTH-01 revalidation. A session can be revoked server-side at any time —
   // password change, role change, deactivation, or "revoke all" from another
   // device — and the tab would otherwise keep showing a stale authenticated UI.

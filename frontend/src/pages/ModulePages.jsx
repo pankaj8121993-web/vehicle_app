@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { CrudModule } from "@/components/CrudModule";
 import { PeriodFilter } from "@/components/PeriodFilter";
@@ -535,6 +535,7 @@ export const DocumentsPage = () => (
 
 export const DriversPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [status, setStatus] = useState("");
   const filters = status ? { status } : {};
   return (
@@ -545,6 +546,6 @@ export const DriversPage = () => {
           { value: "on_leave", label: "On Leave" }, { value: "resigned", label: "Resigned" },
           { value: "terminated", label: "Terminated" },
         ]} />
-      <CrudModule {...driverConfig} fixedFilters={filters} onRowClick={(row) => navigate(`/drivers/${row.id}`)} /></div>
+      <CrudModule {...driverConfig} fixedFilters={filters} onRowClick={(row) => navigate(`/drivers/${row.id}`, { state: { from: `${location.pathname}${location.search}` } })} /></div>
   );
 };

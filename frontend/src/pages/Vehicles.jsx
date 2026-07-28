@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { CrudModule } from "@/components/CrudModule";
 import { vehicleConfig } from "@/lib/configs";
 import { PageHeader } from "@/pages/ModulePages";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 
 export default function Vehicles() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [includeDisposed, setIncludeDisposed] = useState(false);
   return (
     <div data-testid="vehicles-page">
@@ -27,7 +28,7 @@ export default function Vehicles() {
       <CrudModule
         {...vehicleConfig}
         fixedFilters={{ include_disposed: includeDisposed ? "true" : "false" }}
-        onRowClick={(row) => navigate(`/vehicles/${row.id}`)}
+        onRowClick={(row) => navigate(`/vehicles/${row.id}`, { state: { from: `${location.pathname}${location.search}` } })}
       />
     </div>
   );

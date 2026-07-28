@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Loader2, ShieldAlert, Eye, EyeOff, ArrowLeft, PlayCircle } from "lucide
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +24,13 @@ export default function Login() {
     try {
       const u = await login(username.trim().toLowerCase(), password);
       if (u.must_change_password) navigate("/change-password", { replace: true });
-      else navigate("/dashboard", { replace: true });
+      else {
+        const intended = location.state?.from;
+        const destination = intended?.pathname?.startsWith("/") && intended.pathname !== "/login"
+          ? `${intended.pathname}${intended.search || ""}`
+          : "/dashboard";
+        navigate(destination, { replace: true });
+      }
     } catch (err) {
       const d = err?.response?.data?.detail;
       setError(typeof d === "string" ? d : "Login failed. Please try again.");

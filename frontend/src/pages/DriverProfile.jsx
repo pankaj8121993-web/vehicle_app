@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useLocation, useParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { fmtINR, fmtNum } from "@/lib/format";
 import { StatusBadge, ExpiryBadge } from "@/components/StatusBadge";
@@ -20,6 +20,7 @@ const Stat = ({ label, children, testId }) => (
 export default function DriverProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [stats, setStats] = useState(null);
   const [photoUrl, setPhotoUrl] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -51,7 +52,7 @@ export default function DriverProfile() {
 
   return (
     <div data-testid="driver-profile-page">
-      <Button variant="ghost" size="sm" onClick={() => navigate("/drivers")} className="mb-4 -ml-2 text-slate-500 hover:text-slate-900" data-testid="back-to-drivers">
+      <Button variant="ghost" size="sm" onClick={() => navigate(location.state?.from || "/drivers")} className="mb-4 -ml-2 text-slate-500 hover:text-slate-900" data-testid="back-to-drivers">
         <ArrowLeft className="mr-1 h-4 w-4" /> All Drivers
       </Button>
 
