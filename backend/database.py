@@ -21,6 +21,9 @@ TENANT_COLLECTIONS = {
     "repairs", "greasings", "tyres", "tyre_events", "accidents",
     "fastag_transactions", "downtimes", "expenses", "vendors",
     "calendar_events", "compliance_contacts", "budgets", "branches", "users",
+    # OPS-02: expense approval/payment events and driver advances. Org-scoped so
+    # payment history and advances never leak across tenants.
+    "expense_payments", "advances",
     # FILE-01: "files" was previously absent, so file records carried no org_id
     # and GET /api/files/{id} resolved by id alone — any authenticated user could
     # download any organisation's file. Scoping it here makes every read, insert

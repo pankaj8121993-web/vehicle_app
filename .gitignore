@@ -128,3 +128,4 @@ secrets/
 /.local/
 frontend/node_modules/.cache/default-development/9.pack
 frontend/node_modules/.cache/default-development/22.pack
+frontend/node_modules/.cache/default-development/10.pack

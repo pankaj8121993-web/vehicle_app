@@ -376,6 +376,7 @@ export const expenseConfig = {
     { key: "category", label: "Category" },
     { key: "description", label: "Description" },
     { key: "amount", label: "Amount", type: "currency" },
+    { key: "approval_status", label: "Approval", type: "badge" },
     { key: "file_id", label: "Invoice", type: "file" },
   ],
   fields: [

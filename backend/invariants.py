@@ -198,6 +198,8 @@ MONEY_FIELDS = {
     "accidents": ("repair_cost", "claim_amount", "settlement_amount"),
     "fastag_transactions": ("amount",),
     "expenses": ("amount",),
+    # OPS-02: driver advances carry an amount and a server-owned recovered figure.
+    "advances": ("amount", "recovered_amount"),
 }
 
 # Odometer-like fields per collection (validated >= 0, finite, bounded).

@@ -189,7 +189,7 @@ def test_malformed_amount_fails_closed(bad):
 _ROUTE_MODULES = [
     "routes_core", "routes_ops", "routes_assets", "routes_vendors",
     "routes_calendar", "routes_compliance", "routes_expenses", "routes_orgs",
-    "helpers", "auth",
+    "routes_settlement", "helpers", "auth",
 ]
 
 

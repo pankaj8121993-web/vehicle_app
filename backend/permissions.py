@@ -51,6 +51,7 @@ CRUD_RESOURCES = (
     "vehicles", "drivers", "documents", "trips", "fuel", "services",
     "greasings", "repairs", "tyres", "tyre_events", "accidents", "fastag",
     "downtime", "expenses", "vendors", "calendar", "compliance", "budgets",
+    "advances",
 )
 
 # Resources drivers may create (breakdown/field reporting from a phone). Drivers
@@ -68,6 +69,15 @@ ORG_PERMISSIONS = frozenset({
     "repairs:transition",    # dedicated repair status action (WF-01 refines)
     "fastag:simulate",       # demo FASTag simulation (FASTAG-01 refines)
     "testdata:purge",        # wipe is_test_data records
+    # OPS-02: expense approval / payment / settlement actions. Approval and
+    # payment are deliberately separate from expense *submission* (expenses:create,
+    # held by data_entry) so a data-entry user cannot approve or pay their own
+    # claim — these are management/admin only.
+    "expenses:approve",
+    "expenses:reject",
+    "expenses:pay",
+    "expenses:reverse_payment",
+    "settlements:close",
 })
 
 # Platform-owner actions. Defined for separation; held by NO current role.
@@ -158,6 +168,15 @@ def _build_role_permissions():
     # demo org; here it keeps its current reach minus viewer.
     for role in (admin, management, data_entry, driver, test):
         role.add("fastag:simulate")
+
+    # OPS-02: approval, payment and settlement are finance actions — management
+    # and admin only. data_entry may submit an expense (expenses:create) but not
+    # approve, reject, pay or settle it. test keeps parity with data_entry (no
+    # approve/pay) so the test role cannot self-approve either.
+    for perm in ("expenses:approve", "expenses:reject", "expenses:pay",
+                 "expenses:reverse_payment", "settlements:close"):
+        for role in (admin, management):
+            role.add(perm)
 
     return {
         "admin": frozenset(admin),

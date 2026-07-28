@@ -79,3 +79,20 @@ async def swap_status(coll, item_id, expected_status, updates):
         {"$set": updates},
     )
     return res.matched_count == 1
+
+
+async def swap_field(coll, item_id, field, expected_value, updates):
+    """Compare-and-swap on an arbitrary single field (not just ``status``).
+
+    OPS-02 uses a separate ``approval_status`` axis on expenses; the guarantee is
+    identical to :func:`swap_status` — the update applies only if ``field`` still
+    holds ``expected_value``, so two concurrent approve/reject/pay transitions
+    cannot both win. One atomic single-document update; safe on a standalone.
+    """
+    from database import db
+
+    res = await db[coll].update_one(
+        {"id": item_id, field: expected_value},
+        {"$set": updates},
+    )
+    return res.matched_count == 1
