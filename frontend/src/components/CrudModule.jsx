@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,8 @@ import { useAuth } from "@/context/AuthContext";
 import { canCreate, canEdit, canDelete } from "@/lib/permissions";
 import { StatusBadge, ExpiryBadge } from "@/components/StatusBadge";
 import { FileField, FileLink } from "@/components/FileWidgets";
+import { explainApiError, recordLabel, validateCrudForm } from "@/lib/formSafety";
+import { UNSAVED_MESSAGE, useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 
 const renderCell = (col, row) => {
   const val = row[col.key];
@@ -45,15 +47,17 @@ const renderCell = (col, row) => {
   }
 };
 
-const FieldInput = ({ field, value, onChange, options, form, setForm }) => {
+const FieldInput = ({ field, value, onChange, options, form, setForm, error }) => {
   const testId = `form-field-${field.name}`;
+  const inputId = `crud-field-${field.name}`;
   if (field.type === "textarea") {
-    return <Textarea data-testid={testId} value={value ?? ""} onChange={(e) => onChange(e.target.value)} rows={2} className="rounded-none" />;
+    return <Textarea id={inputId} data-testid={testId} aria-invalid={!!error} aria-describedby={error ? `${inputId}-error` : undefined} value={value ?? ""} onChange={(e) => onChange(e.target.value)} rows={2} className="rounded-none" />;
   }
   if (field.type === "boolean") {
     return (
       <Switch
         data-testid={testId}
+        id={inputId}
         checked={!!value}
         onCheckedChange={onChange}
       />
@@ -73,7 +77,7 @@ const FieldInput = ({ field, value, onChange, options, form, setForm }) => {
     };
     return (
       <Select value="" onValueChange={onPick}>
-        <SelectTrigger data-testid={testId} className="rounded-none">
+        <SelectTrigger id={inputId} data-testid={testId} aria-invalid={!!error} aria-describedby={error ? `${inputId}-error` : undefined} className="rounded-none">
           <SelectValue placeholder={filtered.length ? "Select a saved vendor…" : "No saved vendors — type below"} />
         </SelectTrigger>
         <SelectContent>
@@ -110,7 +114,7 @@ const FieldInput = ({ field, value, onChange, options, form, setForm }) => {
     const opts = field.type === "select" ? field.options : options[field.type] || [];
     return (
       <Select value={value ?? ""} onValueChange={onChange}>
-        <SelectTrigger data-testid={testId} className="rounded-none">
+        <SelectTrigger id={inputId} data-testid={testId} aria-invalid={!!error} aria-describedby={error ? `${inputId}-error` : undefined} className="rounded-none">
           <SelectValue placeholder={`Select ${field.label}`} />
         </SelectTrigger>
         <SelectContent>
@@ -128,8 +132,12 @@ const FieldInput = ({ field, value, onChange, options, form, setForm }) => {
     <div className="relative">
       <Input
         data-testid={testId}
+        id={inputId}
+        aria-invalid={!!error}
+        aria-describedby={error ? `${inputId}-error` : undefined}
         type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
         step={field.type === "number" ? "any" : undefined}
+        min={field.type === "number" ? (["quantity", "litres"].includes(field.name) ? "0.01" : "0") : undefined}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
         className={`rounded-none ${field.suffix || field.prefix ? "pr-10" : ""}`}
@@ -152,6 +160,8 @@ export const CrudModule = ({
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
+  const savingRef = useRef(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [options, setOptions] = useState({ vehicle: [], driver: [], tyre: [], vendor: [] });
   const [page, setPage] = useState(1);
@@ -162,6 +172,9 @@ export const CrudModule = ({
   const role = user?.role;
   const prefix = testIdPrefix || endpoint;
   const fixedJson = JSON.stringify(fixedFilters);
+  const initialFormRef = useRef("{}");
+  const isDirty = sheetOpen && JSON.stringify(form) !== initialFormRef.current;
+  useUnsavedChanges(isDirty && !saving);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -221,6 +234,8 @@ export const CrudModule = ({
     fields.forEach((f) => { if (f.default !== undefined) init[f.name] = f.default; });
     setEditing(null);
     setForm(init);
+    setFormErrors({});
+    initialFormRef.current = JSON.stringify(init);
     setSheetOpen(true);
   };
 
@@ -229,16 +244,16 @@ export const CrudModule = ({
     fields.forEach((f) => { init[f.name] = row[f.name] ?? null; });
     setEditing(row);
     setForm(init);
+    setFormErrors({});
+    initialFormRef.current = JSON.stringify(init);
     setSheetOpen(true);
   };
 
   const submit = async () => {
-    for (const f of visibleFields) {
-      if (f.required && (form[f.name] === undefined || form[f.name] === null || form[f.name] === "")) {
-        toast.error(`${f.label} is required`);
-        return;
-      }
-    }
+    if (savingRef.current) return;
+    const errors = validateCrudForm(visibleFields, form);
+    setFormErrors(errors);
+    if (Object.keys(errors).length) return;
     const payload = { ...JSON.parse(fixedJson) };
     fields.forEach((f) => {
       if (f.type === "vendor_picker") return;  // pseudo-field; not submitted
@@ -248,6 +263,7 @@ export const CrudModule = ({
       payload[f.name] = v;
     });
     if (form.vendor_id) payload.vendor_id = form.vendor_id;
+    savingRef.current = true;
     setSaving(true);
     try {
       if (editing) {
@@ -257,25 +273,33 @@ export const CrudModule = ({
         await api.post(`/${endpoint}`, payload);
         toast.success(`${title} added`);
       }
+      initialFormRef.current = JSON.stringify(form);
       setSheetOpen(false);
       refresh();
     } catch (err) {
-      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Save failed");
+      toast.error(explainApiError(err, "Save failed. Your entries have been kept."));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
   const confirmDelete = async () => {
+    if (!deleteTarget || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       await api.delete(`/${endpoint}/${deleteTarget.id}`);
       toast.success("Deleted");
       refresh();
     } catch (err) {
-      toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Delete failed");
+      toast.error(explainApiError(err, "Delete failed."));
+      return;
     } finally {
-      setDeleteTarget(null);
+      savingRef.current = false;
+      setSaving(false);
     }
+    setDeleteTarget(null);
   };
 
   const filtered = search
@@ -370,38 +394,50 @@ export const CrudModule = ({
         </div>
       )}
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+      <Sheet open={sheetOpen} onOpenChange={(open) => {
+        if (!open && isDirty && !window.confirm(UNSAVED_MESSAGE)) return;
+        setSheetOpen(open);
+      }}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">
           <SheetHeader>
             <SheetTitle className="font-heading text-xl font-bold">{editing ? `Edit ${title}` : addLabel || `Add ${title}`}</SheetTitle>
             <SheetDescription className="sr-only">{editing ? `Edit ${title} form` : `Add ${title} form`}</SheetDescription>
           </SheetHeader>
-          <div className="mt-5 space-y-4">
+          <form className="mt-5 space-y-4" onSubmit={(event) => { event.preventDefault(); submit(); }} noValidate>
+            {Object.keys(formErrors).length > 0 && (
+              <p className="border-l-2 border-red-500 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                Review the highlighted fields before saving.
+              </p>
+            )}
             {visibleFields.map((f) => (
               <div key={f.name} className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <Label htmlFor={`crud-field-${f.name}`} className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {f.label}{f.required && <span className="text-red-600"> *</span>}
                 </Label>
-                <FieldInput field={f} value={form[f.name]} onChange={(v) => setForm((p) => ({ ...p, [f.name]: v }))} options={options} form={form} setForm={setForm} />
+                <FieldInput field={f} value={form[f.name]} error={formErrors[f.name]} onChange={(v) => {
+                  setForm((p) => ({ ...p, [f.name]: v }));
+                  setFormErrors((previous) => ({ ...previous, [f.name]: undefined }));
+                }} options={options} form={form} setForm={setForm} />
+                {formErrors[f.name] && <p id={`crud-field-${f.name}-error`} className="text-xs text-red-700">{formErrors[f.name]}</p>}
               </div>
             ))}
-            <Button data-testid={`${prefix}-submit-btn`} onClick={submit} disabled={saving} className="w-full rounded-none bg-slate-900 text-white hover:bg-slate-800">
+            <Button type="submit" data-testid={`${prefix}-submit-btn`} disabled={saving} className="w-full rounded-none bg-slate-900 text-white hover:bg-slate-800">
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               {editing ? "Save Changes" : "Save"}
             </Button>
-          </div>
+          </form>
         </SheetContent>
       </Sheet>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent className="rounded-none">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this record?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogTitle>Delete {recordLabel(deleteTarget)}?</AlertDialogTitle>
+            <AlertDialogDescription>This permanently removes {recordLabel(deleteTarget)}. This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-none" data-testid={`${prefix}-delete-cancel`}>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="rounded-none bg-red-600 hover:bg-red-700" onClick={confirmDelete} data-testid={`${prefix}-delete-confirm`}>Delete</AlertDialogAction>
+            <AlertDialogAction disabled={saving} className="rounded-none bg-red-600 hover:bg-red-700" onClick={confirmDelete} data-testid={`${prefix}-delete-confirm`}>Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
