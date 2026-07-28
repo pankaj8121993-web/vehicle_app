@@ -195,7 +195,8 @@ MONEY_FIELDS = {
     "greasings": ("cost",),
     "tyres": ("cost",),
     "tyre_events": ("cost",),
-    "accidents": ("repair_cost", "claim_amount", "settlement_amount"),
+    "accidents": ("repair_cost", "claim_amount", "approved_amount",
+                  "settlement_amount", "estimated_loss"),
     "fastag_transactions": ("amount",),
     "expenses": ("amount",),
     # OPS-02: driver advances carry an amount and a server-owned recovered figure.
@@ -255,6 +256,13 @@ def enforce_record_invariants(collection, doc):
     if collection == "downtimes":
         require_date_order(doc.get("start_date"), doc.get("end_date"))
 
+    if collection == "documents":
+        # OPS-04: a document's expiry cannot precede its issue date.
+        require_date_order(
+            doc.get("issue_date"), doc.get("expiry_date"),
+            start_field="issue_date", end_field="expiry_date",
+        )
+
     if collection == "accidents":
         # A settlement cannot exceed the amount claimed — the one "paid cannot
         # exceed eligible" rule the current schema actually expresses.
@@ -264,15 +272,22 @@ def enforce_record_invariants(collection, doc):
 
 
 def _enforce_settlement_within_claim(doc):
-    claim = doc.get("claim_amount")
     settlement = doc.get("settlement_amount")
-    if claim is None or settlement is None:
+    if settlement is None:
+        return
+    # OPS-04: the ceiling is the approved amount when present, else the claim.
+    ceiling = doc.get("approved_amount")
+    ceiling_field = "approved_amount"
+    if ceiling is None:
+        ceiling = doc.get("claim_amount")
+        ceiling_field = "claim_amount"
+    if ceiling is None:
         return
     try:
-        if float(settlement) > float(claim):
+        if float(settlement) > float(ceiling):
             raise HTTPException(
                 status_code=400,
-                detail="settlement_amount cannot exceed claim_amount",
+                detail=f"settlement_amount cannot exceed {ceiling_field}",
             )
     except (ValueError, TypeError):
         return

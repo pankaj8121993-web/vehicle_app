@@ -8,6 +8,7 @@ from helpers import make_crud, gather_expenses, enrich
 from references import validate_references
 import atomicity
 import invariants
+import workflow
 import fastag_simulation
 
 
@@ -146,7 +147,67 @@ make_crud(router, "tyre-events", "tyre_events", TyreEventCreate,
 
 
 # ---------- Accidents ----------
-make_crud(router, "accidents", "accidents", AccidentCreate)
+async def on_accident_create(doc):
+    # OPS-04: an accident enters the claim lifecycle at "reported".
+    if not doc.get("claim_status"):
+        doc["claim_status"] = "reported"
+    return doc
+
+make_crud(router, "accidents", "accidents", AccidentCreate, on_create=on_accident_create)
+
+
+@router.patch("/accidents/{accident_id}/claim")
+async def transition_claim(accident_id: str, payload: dict = Body(...),
+                           user=Depends(require_permission("accidents:update"))):
+    """Drive the insurance-claim lifecycle:
+    reported → evidence_collected → claim_submitted → under_survey →
+    approved/rejected → settled → closed.
+
+    Approve/reject/settle are management/admin only. Settlement cannot exceed the
+    approved (or, if unset, the claimed) amount. Idempotent and compare-and-swap
+    protected, so a repeated settlement never duplicates the payment effect; a
+    closed claim is terminal."""
+    acc = await db.accidents.find_one({"id": accident_id}, {"_id": 0})
+    if not acc:
+        raise HTTPException(status_code=404, detail="Accident not found")
+    current = acc.get("claim_status") or "reported"
+    target = payload.get("status")
+    if not target:
+        raise HTTPException(status_code=400, detail="status is required")
+    workflow.check_version(acc, payload.get("expected_version"))
+    kind = workflow.validate_transition(
+        workflow.ACCIDENT_CLAIM_WORKFLOW, current, target, role=user.get("role"))
+    if kind == "noop":
+        return acc
+    updates = {"claim_status": target, "_version": workflow.next_version(acc)}
+    if target == "approved":
+        approved = payload.get("approved_amount", acc.get("claim_amount"))
+        approved = invariants.money(approved, field="approved_amount", allow_none=False)
+        claim = acc.get("claim_amount")
+        if claim is not None and approved > claim:
+            raise HTTPException(status_code=400,
+                                detail="approved_amount cannot exceed claim_amount")
+        updates["approved_amount"] = approved
+    if target == "settled":
+        settlement = invariants.money(payload.get("settlement_amount"),
+                                      field="settlement_amount", allow_none=False)
+        ceiling = acc.get("approved_amount")
+        if ceiling is None:
+            ceiling = acc.get("claim_amount")
+        if ceiling is not None and settlement > ceiling:
+            raise HTTPException(
+                status_code=400,
+                detail="settlement_amount cannot exceed the approved/claim amount")
+        updates["settlement_amount"] = settlement
+    if payload.get("rejection_reason"):
+        updates["rejection_reason"] = payload["rejection_reason"]
+    won = await atomicity.swap_field("accidents", accident_id, "claim_status", current, updates)
+    if not won:
+        raise HTTPException(status_code=409,
+                            detail="This claim changed since you loaded it. Reload and retry.")
+    await record_security_event("accident.claim", user, target_id=accident_id,
+                                detail={"from": current, "to": target})
+    return await db.accidents.find_one({"id": accident_id}, {"_id": 0})
 
 
 # ---------- Fastag ----------

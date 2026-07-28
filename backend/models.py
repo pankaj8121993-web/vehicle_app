@@ -267,7 +267,14 @@ class AccidentCreate(TenantSafeModel):
     claim_status: Optional[str] = None
     repair_cost: Optional[float] = 0
     claim_amount: Optional[float] = 0
+    approved_amount: Optional[float] = None
     settlement_amount: Optional[float] = 0
+    # OPS-04: an accident may be linked to the trip it occurred on.
+    trip_id: Optional[str] = None
+    # Third-party / police reference fields (OPS-04).
+    third_party_involved: Optional[bool] = None
+    police_reference: Optional[str] = None
+    estimated_loss: Optional[float] = None
 
 
 class FastagTxnCreate(TenantSafeModel):

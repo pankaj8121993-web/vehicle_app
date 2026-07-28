@@ -164,6 +164,31 @@ TRIP_STATUS_WORKFLOW = Workflow(
 # generic update must not be a bypass. A no-op (same status) is still allowed.
 DEDICATED_ONLY_STATUS = {"trips"}
 
+# Accident insurance claims (OPS-04). Keyed on the accident's ``claim_status``
+# field (not ``status``), so it is validated directly by the dedicated claim
+# endpoint rather than through the generic-status guard. Financial transitions
+# (approve/settle/reject a claim) are management/admin only. closed is terminal.
+ACCIDENT_CLAIM_WORKFLOW = Workflow(
+    "accident_claims",
+    {
+        "reported": ["evidence_collected", "claim_submitted", "closed"],
+        "evidence_collected": ["claim_submitted", "closed"],
+        "claim_submitted": ["under_survey", "closed"],
+        "under_survey": ["approved", "rejected"],
+        "approved": ["settled", "closed"],
+        "settled": ["closed"],
+        "rejected": ["closed"],
+        "closed": [],
+    },
+    initial="reported",
+    roles={
+        "approved": ("management", "admin"),
+        "rejected": ("management", "admin"),
+        "settled": ("management", "admin"),
+    },
+)
+
+
 # Collections whose ``status`` is workflow-controlled. A generic update that
 # tries to change status on one of these is routed through validate_transition
 # rather than written blindly. Everything else may set status freely (it is a

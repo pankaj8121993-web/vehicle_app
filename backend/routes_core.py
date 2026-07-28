@@ -487,7 +487,25 @@ async def driver_stats(did: str, user=Depends(require_user)):
 
 
 # ---------- Documents ----------
-make_crud(router, "documents", "documents", DocumentCreate, date_field="expiry_date")
+async def on_document_create(doc):
+    # OPS-04: the freshly filed document is the current evidence.
+    doc["is_current"] = True
+    return doc
+
+
+async def after_document_create(doc):
+    # OPS-04: a new document of the same type supersedes the prior current one for
+    # that vehicle. History is preserved — the old record stays, marked superseded
+    # (never overwritten) — so replacing a document does not lose the old evidence.
+    await db.documents.update_many(
+        {"vehicle_id": doc["vehicle_id"], "doc_type": doc["doc_type"],
+         "id": {"$ne": doc["id"]}, "is_current": True},
+        {"$set": {"is_current": False, "superseded_by": doc["id"],
+                  "superseded_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+make_crud(router, "documents", "documents", DocumentCreate, date_field="expiry_date",
+          on_create=on_document_create, after_create=after_document_create)
 
 
 # ---------- File upload / download ----------

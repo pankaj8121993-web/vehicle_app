@@ -112,3 +112,12 @@ async def validate_references(collection, doc):
         vendor = await db.vendors.find_one({"id": vendor_id}, {"_id": 0, "id": 1})
         if not vendor:
             raise HTTPException(status_code=400, detail="Referenced vendor does not exist")
+
+    # OPS-04: an accident (or other record) may reference the trip it belongs to;
+    # the trip must exist in the same organisation. Resolved through the scoped
+    # db, so a cross-tenant trip id is rejected like a non-existent one.
+    trip_id = doc.get("trip_id")
+    if trip_id:
+        trip = await db.trips.find_one({"id": trip_id}, {"_id": 0, "id": 1})
+        if not trip:
+            raise HTTPException(status_code=400, detail="Referenced trip does not exist")
