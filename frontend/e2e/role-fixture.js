@@ -24,7 +24,7 @@ function invoke(action, env) {
     encoding: "utf8",
     env: {
       ...process.env, APP_ENV: "test", FLEETFLOW_ROLE_E2E_RUN_ID: env.runId,
-      FLEETFLOW_ROLE_E2E_PASSWORD: env.password,
+      FLEETFLOW_ROLE_E2E_PASSWORD: env.password, FLEETFLOW_ROLE_E2E_ALLOW: "true",
     },
   });
 }
