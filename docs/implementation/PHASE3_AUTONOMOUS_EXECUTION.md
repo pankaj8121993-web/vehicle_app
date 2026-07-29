@@ -12,7 +12,7 @@ Initial resume snapshot (2026-07-29 UTC):
 | Sequence | Workstream | Status | Branch | Starting commit | Latest commit | Tests | PR | Merge | Remaining issue |
 | -------- | ---------- | ------ | ------ | --------------- | ------------- | ----- | -- | ----- | --------------- |
 | P3-01 | UX-R1A completion | Complete | `feature/ux-r1-recovery-verification` | `1c667f3` | pending checkpoint | Fixture safety: 2 passed; role matrix: 15 passed, 9 profile skips (8 Chromium, 4 exact-mobile, 3 Firefox) | — | — | None |
-| P3-02 | Backend regression repair | In progress | `feature/ux-r1-recovery-verification` | `8ffaa76` | `71edb09` | Prior clean runs are not accepted as the final gate | — | — | Re-run complete suite twice after all changes |
+| P3-02 | Backend regression repair | Complete | `feature/ux-r1-recovery-verification` | `8ffaa76` | pending checkpoint | Real HTTP auth 18 passed; full runs: 871 passed, 3 skipped in 96.77s and 97.58s | — | — | None |
 | P3-03 | Endpoint/search/filter/pagination verification | Implemented, validation pending | `feature/ux-r1-recovery-verification` | `379cb5b` | `379cb5b` | Endpoint matrix checkpoint committed locally | — | — | Validate and push |
 | P3-04 | Export verification | Implemented, validation pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | Export checkpoint committed locally | — | — | Validate and push |
 | P3-05 | Domain-form regression | In progress | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | Pre-existing uncommitted form tests and implementation | — | — | Attribute, complete, validate, commit |

@@ -8,9 +8,26 @@ tests now read their credentials from environment variables (see
 ``live_credentials`` below) and skip when those are not provided.
 """
 import os
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
+
+# The supported invocation is from the repository root (`python -m pytest
+# backend/tests`). Make backend modules importable before pytest imports test
+# modules; relying on a caller's working directory made local focused runs pass
+# while the documented command and CI failed during collection.
+BACKEND_DIR = str(Path(__file__).resolve().parents[1])
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
+# Test clients use plain local HTTP. Set these before `server` or `auth` can
+# load backend/.env; otherwise the development cross-site-cookie setting makes
+# every real-HTTP session Secure/SameSite=None and httpx correctly declines to
+# send it back over HTTP, turning authenticated integration tests into 401s.
+os.environ["APP_ENV"] = "test"
+os.environ["FLEETFLOW_CROSS_SITE_COOKIES"] = "false"
 
 # TEN-TEST: point the whole suite at a dedicated, disposable database *before*
 # anything imports `database` (which resolves DB_NAME at import time).
