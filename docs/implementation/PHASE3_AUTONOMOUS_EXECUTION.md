@@ -16,8 +16,8 @@ Initial resume snapshot (2026-07-29 UTC):
 | P3-03 | Endpoint/search/filter/pagination verification | Complete | `feature/ux-r1-recovery-verification` | `379cb5b` | `379cb5b` | Endpoint matrix included in both 871-pass full runs | — | — | None |
 | P3-04 | Export verification | Complete | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | Export matrix included in both 871-pass full runs | — | — | None |
 | P3-05 | Domain-form regression | Complete | `feature/ux-r1-recovery-verification` | `71edb09` | pending checkpoint | Frontend 22 passed; focused domain 3 passed; real-auth domain browser 2 passed | — | — | None |
-| P3-06 | Authenticated API performance | Pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | — | — | — | Implement and measure |
-| P3-07 | Ten-user load | Pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | — | — | — | Implement and measure |
+| P3-06 | Authenticated API performance | Complete | `feature/ux-r1-recovery-verification` | `541c7c3` | pending checkpoint | 20 requests/endpoint; 0 errors; list worst p95 516.64ms, profile 148ms, dashboard 51.72ms | — | — | None |
+| P3-07 | Ten-user load | Complete | `feature/ux-r1-recovery-verification` | `541c7c3` | pending checkpoint | 10 sessions/2 orgs/200 requests; 0 errors, 0 leakage, 0 collision | — | — | None |
 | P3-08 | Lighthouse | Pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | — | — | — | Implement and measure |
 | P3-09 | UX-R1 release and merge | Pending | `feature/ux-r1-recovery-verification` | `250f05d` | `71edb09` | — | — | — | Complete gates and merge to `develop` |
 | P3-10 | UX-05 mobile and accessibility | Pending | `feature/ux-05-mobile-accessibility` | TBD | TBD | — | — | — | Starts only after UX-R1 merge |
