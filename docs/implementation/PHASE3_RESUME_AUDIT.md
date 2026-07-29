@@ -9,12 +9,12 @@ alone.
 
 | Requirement | Status | Evidence / gap |
 | --- | --- | --- |
-| Routes and guards | Implemented but not fully verified | Explicit public, guest, protected, denied and not-found guards; 9 route tests, but role-backed browser matrix absent |
+| Routes and guards | Implemented and role-verified | Explicit guards plus real-session matrix: all eight Chromium roles, four exact 360×800 mobile roles and three Firefox representatives |
 | Page states | Implemented but not fully verified | Shared loading/error/empty states; incomplete route-wide browser evidence |
-| Forms and validation | Partially implemented | Shared CRUD hardened; domain-specific high-risk forms not exhaustively covered |
-| Duplicate-submit protection | Implemented but not fully verified | Shared synchronous lock and tests; domain audit incomplete |
-| Unsaved-change protection | Implemented but not fully verified | Shared CRUD coverage; domain-specific coverage incomplete |
-| Destructive actions | Partially implemented | Shared confirmation improved; domain workflows require browser verification |
+| Forms and validation | Implemented and verified | Shared forms plus actual Trip/Expense UI regression and full backend domain workflow matrix |
+| Duplicate-submit protection | Implemented and verified | Shared CRUD and high-risk domain pending locks covered |
+| Unsaved-change protection | Implemented and verified | Shared CRUD regression plus domain dialogs retain values on failure |
+| Destructive actions | Implemented and verified | Record-specific shared confirmation and domain transition suites covered |
 | Search, sorting, pagination, totals | Implemented and verified | 25-test real-HTTP/disposable-Mongo endpoint matrix covers all applicable registers |
 | Search beyond page one | Implemented and verified | 23-row endpoint fixtures prove server search finds a naturally deep-page record |
 | Filters and return persistence | Implemented and verified | Status/date/domain/combined filters plus frontend filter/sort request persistence covered |

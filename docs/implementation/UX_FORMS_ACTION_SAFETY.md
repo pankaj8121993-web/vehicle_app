@@ -56,6 +56,11 @@ performed where doing so could alter workflow semantics.
   destructive record identity.
 - Existing UX-01 route suite remains part of `npm run test:ci`.
 - Production build and Playwright route smoke are rerun for regression.
+- Actual Trip and Expense workflow dialogs now lock pending actions, retain
+  values and stay open after failure, and close only after success. Focused
+  component tests and real-auth Chromium scenarios cover both workflows.
+- The complete backend domain inventory is mapped in
+  `DOMAIN_FORM_REGRESSION_EVIDENCE.md`.
 
 ## Known limitation
 
@@ -65,4 +70,3 @@ capture handler while a meaningful shared CRUD form is dirty; browser
 back/forward navigation receives the standard browser unload warning. A future
 router migration should replace this compatibility layer with the router's
 native blocker.
-

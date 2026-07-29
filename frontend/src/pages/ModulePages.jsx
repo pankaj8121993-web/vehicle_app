@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusTabs } from "@/components/StatusTabs";
 import { toast } from "sonner";
@@ -34,8 +34,10 @@ const patchTrip = async (id, action, body, okMsg, refresh) => {
     await api.patch(`/trips/${id}/${action}`, body || {});
     toast.success(okMsg);
     refresh();
+    return true;
   } catch (err) {
     toast.error(err.response?.data?.detail ? String(err.response.data.detail) : `Failed to ${action} trip`);
+    return false;
   }
 };
 
@@ -50,15 +52,28 @@ const TripActions = ({ row, refresh }) => {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [closingKm, setClosingKm] = useState("");
   const [reason, setReason] = useState("");
+  const [working, setWorking] = useState(false);
+  const [closeError, setCloseError] = useState("");
   const s = row.status;
 
   const doClose = async () => {
-    await patchTrip(row.id, "close", { closing_km: parseFloat(closingKm) }, "Trip completed", refresh);
-    setCloseOpen(false);
+    const value = Number(closingKm);
+    if (!Number.isFinite(value) || value < Number(row.opening_km || 0)) {
+      setCloseError(`Closing odometer must be at least ${row.opening_km || 0}.`);
+      return;
+    }
+    if (working) return;
+    setWorking(true);
+    const ok = await patchTrip(row.id, "close", { closing_km: value }, "Trip completed", refresh);
+    setWorking(false);
+    if (ok) setCloseOpen(false);
   };
   const doCancel = async () => {
-    await patchTrip(row.id, "cancel", { reason }, "Trip cancelled", refresh);
-    setCancelOpen(false);
+    if (working) return;
+    setWorking(true);
+    const ok = await patchTrip(row.id, "cancel", { reason }, "Trip cancelled", refresh);
+    setWorking(false);
+    if (ok) setCancelOpen(false);
   };
 
   return (
@@ -66,7 +81,8 @@ const TripActions = ({ row, refresh }) => {
       {s === "assigned" && (
         <Button data-testid={`dispatch-trip-${row.id}`} variant="outline" size="sm"
           className={`${btnCls} border-blue-300 text-blue-700 hover:bg-blue-50`}
-          onClick={() => patchTrip(row.id, "dispatch", {}, "Trip dispatched", refresh)}>Dispatch</Button>
+          disabled={working}
+          onClick={async () => { if (working) return; setWorking(true); await patchTrip(row.id, "dispatch", {}, "Trip dispatched", refresh); setWorking(false); }}>Dispatch</Button>
       )}
       {s === "ongoing" && (
         <Button data-testid={`close-trip-${row.id}`} variant="outline" size="sm"
@@ -76,7 +92,8 @@ const TripActions = ({ row, refresh }) => {
       {(s === "completed" || s === "settlement_pending") && (
         <Button data-testid={`finalize-trip-${row.id}`} variant="outline" size="sm"
           className={`${btnCls} border-slate-400 text-slate-700 hover:bg-slate-100`}
-          onClick={() => patchTrip(row.id, "finalize", {}, "Trip closed out", refresh)}>Close out</Button>
+          disabled={working}
+          onClick={async () => { if (working) return; setWorking(true); await patchTrip(row.id, "finalize", {}, "Trip closed out", refresh); setWorking(false); }}>Close out</Button>
       )}
       {["planned", "assigned", "ongoing"].includes(s) && (
         <Button data-testid={`cancel-trip-${row.id}`} variant="outline" size="sm"
@@ -85,21 +102,22 @@ const TripActions = ({ row, refresh }) => {
       )}
       <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
         <DialogContent className="rounded-none sm:max-w-sm">
-          <DialogHeader><DialogTitle>Complete Trip — Enter Closing KM</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Complete Trip — Enter Closing KM</DialogTitle><DialogDescription>Record the final odometer reading for this trip.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <Label className="text-xs font-semibold uppercase text-slate-500">Closing Odometer (KM)</Label>
-            <Input data-testid="close-trip-km-input" type="number" value={closingKm} onChange={(e) => setClosingKm(e.target.value)} className="rounded-none" />
-            <Button data-testid="close-trip-confirm" onClick={doClose} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Complete Trip</Button>
+            <Input data-testid="close-trip-km-input" type="number" value={closingKm} aria-invalid={!!closeError} onChange={(e) => { setClosingKm(e.target.value); setCloseError(""); }} className="rounded-none" />
+            {closeError && <p className="text-xs text-red-700" role="alert">{closeError}</p>}
+            <Button data-testid="close-trip-confirm" disabled={working} onClick={doClose} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">{working ? "Completing…" : "Complete Trip"}</Button>
           </div>
         </DialogContent>
       </Dialog>
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent className="rounded-none sm:max-w-sm">
-          <DialogHeader><DialogTitle>Cancel Trip</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Cancel Trip</DialogTitle><DialogDescription>Cancel this trip without changing unrelated records.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <Label className="text-xs font-semibold uppercase text-slate-500">Reason (optional)</Label>
             <Input data-testid="cancel-trip-reason" value={reason} onChange={(e) => setReason(e.target.value)} className="rounded-none" />
-            <Button data-testid="cancel-trip-confirm" onClick={doCancel} className="w-full rounded-none bg-red-700 hover:bg-red-800">Cancel Trip</Button>
+            <Button data-testid="cancel-trip-confirm" disabled={working} onClick={doCancel} className="w-full rounded-none bg-red-700 hover:bg-red-800">{working ? "Cancelling…" : "Cancel Trip"}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -117,16 +135,23 @@ const ExpenseActions = ({ row, refresh }) => {
   const [payOpen, setPayOpen] = useState(false);
   const [approvedAmount, setApprovedAmount] = useState(String(row.amount ?? ""));
   const [payAmount, setPayAmount] = useState("");
+  const [working, setWorking] = useState(false);
   const s = row.approval_status || "submitted";
   const outstanding = (row.approved_amount ?? 0) - (row.paid_amount ?? 0);
 
   const call = async (method, url, body, okMsg) => {
+    if (working) return false;
+    setWorking(true);
     try {
       await api[method](url, body || {});
       toast.success(okMsg);
       refresh();
+      return true;
     } catch (err) {
       toast.error(err.response?.data?.detail ? String(err.response.data.detail) : "Action failed");
+      return false;
+    } finally {
+      setWorking(false);
     }
   };
 
@@ -139,6 +164,7 @@ const ExpenseActions = ({ row, refresh }) => {
             onClick={() => setApproveOpen(true)}>Approve</Button>
           <Button data-testid={`reject-expense-${row.id}`} variant="outline" size="sm"
             className="h-7 rounded-none border-red-300 px-2 text-xs text-red-700 hover:bg-red-50"
+            disabled={working}
             onClick={() => call("patch", `/expenses/${row.id}/reject`, { reason: "Rejected" }, "Expense rejected")}>Reject</Button>
         </>
       )}
@@ -149,21 +175,21 @@ const ExpenseActions = ({ row, refresh }) => {
       )}
       <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
         <DialogContent className="rounded-none sm:max-w-sm">
-          <DialogHeader><DialogTitle>Approve Expense</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Approve Expense</DialogTitle><DialogDescription>Confirm the authorised amount for this expense.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <Label className="text-xs font-semibold uppercase text-slate-500">Approved Amount (₹)</Label>
             <Input data-testid="approve-expense-amount" type="number" value={approvedAmount} onChange={(e) => setApprovedAmount(e.target.value)} className="rounded-none" />
-            <Button data-testid="approve-expense-confirm" onClick={async () => { await call("patch", `/expenses/${row.id}/approve`, { approved_amount: parseFloat(approvedAmount) }, "Expense approved"); setApproveOpen(false); }} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Approve</Button>
+            <Button data-testid="approve-expense-confirm" disabled={working || !(Number(approvedAmount) >= 0)} onClick={async () => { if (await call("patch", `/expenses/${row.id}/approve`, { approved_amount: Number(approvedAmount) }, "Expense approved")) setApproveOpen(false); }} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">{working ? "Approving…" : "Approve"}</Button>
           </div>
         </DialogContent>
       </Dialog>
       <Dialog open={payOpen} onOpenChange={setPayOpen}>
         <DialogContent className="rounded-none sm:max-w-sm">
-          <DialogHeader><DialogTitle>Record Payment (outstanding ₹{outstanding})</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Record Payment (outstanding ₹{outstanding})</DialogTitle><DialogDescription>Record a payment up to the remaining approved balance.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <Label className="text-xs font-semibold uppercase text-slate-500">Payment Amount (₹)</Label>
             <Input data-testid="pay-expense-amount" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="rounded-none" />
-            <Button data-testid="pay-expense-confirm" onClick={async () => { await call("post", `/expenses/${row.id}/payments`, { amount: parseFloat(payAmount) }, "Payment recorded"); setPayOpen(false); }} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">Record Payment</Button>
+            <Button data-testid="pay-expense-confirm" disabled={working || !(Number(payAmount) > 0) || Number(payAmount) > outstanding} onClick={async () => { if (await call("post", `/expenses/${row.id}/payments`, { amount: Number(payAmount) }, "Payment recorded")) setPayOpen(false); }} className="w-full rounded-none bg-slate-900 hover:bg-slate-800">{working ? "Recording…" : "Record Payment"}</Button>
           </div>
         </DialogContent>
       </Dialog>

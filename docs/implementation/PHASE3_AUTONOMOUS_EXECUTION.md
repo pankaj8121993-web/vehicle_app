@@ -13,9 +13,9 @@ Initial resume snapshot (2026-07-29 UTC):
 | -------- | ---------- | ------ | ------ | --------------- | ------------- | ----- | -- | ----- | --------------- |
 | P3-01 | UX-R1A completion | Complete | `feature/ux-r1-recovery-verification` | `1c667f3` | pending checkpoint | Fixture safety: 2 passed; role matrix: 15 passed, 9 profile skips (8 Chromium, 4 exact-mobile, 3 Firefox) | — | — | None |
 | P3-02 | Backend regression repair | Complete | `feature/ux-r1-recovery-verification` | `8ffaa76` | pending checkpoint | Real HTTP auth 18 passed; full runs: 871 passed, 3 skipped in 96.77s and 97.58s | — | — | None |
-| P3-03 | Endpoint/search/filter/pagination verification | Implemented, validation pending | `feature/ux-r1-recovery-verification` | `379cb5b` | `379cb5b` | Endpoint matrix checkpoint committed locally | — | — | Validate and push |
-| P3-04 | Export verification | Implemented, validation pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | Export checkpoint committed locally | — | — | Validate and push |
-| P3-05 | Domain-form regression | In progress | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | Pre-existing uncommitted form tests and implementation | — | — | Attribute, complete, validate, commit |
+| P3-03 | Endpoint/search/filter/pagination verification | Complete | `feature/ux-r1-recovery-verification` | `379cb5b` | `379cb5b` | Endpoint matrix included in both 871-pass full runs | — | — | None |
+| P3-04 | Export verification | Complete | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | Export matrix included in both 871-pass full runs | — | — | None |
+| P3-05 | Domain-form regression | Complete | `feature/ux-r1-recovery-verification` | `71edb09` | pending checkpoint | Frontend 22 passed; focused domain 3 passed; real-auth domain browser 2 passed | — | — | None |
 | P3-06 | Authenticated API performance | Pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | — | — | — | Implement and measure |
 | P3-07 | Ten-user load | Pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | — | — | — | Implement and measure |
 | P3-08 | Lighthouse | Pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | — | — | — | Implement and measure |
