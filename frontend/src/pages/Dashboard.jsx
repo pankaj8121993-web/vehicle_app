@@ -1,10 +1,11 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import api from "@/lib/api";
+import { lazyWithRetry } from "@/lib/lazyWithRetry";
 import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
 import { Loader2, Truck, Route, Hammer, PauseCircle, ShieldAlert, Fuel, Wrench, IndianRupee, AlertTriangle, TrendingUp } from "lucide-react";
 // Recharts is code-split into its own chunk so it stays off the dashboard's
 // critical render path; the text metrics paint first.
-const DashboardTrends = lazy(() => import("@/components/DashboardTrends"));
+const DashboardTrends = lazy(lazyWithRetry(() => import("@/components/DashboardTrends")));
 import { DrillDownDialog } from "@/components/DrillDownDialog";
 import { SetupChecklistBanner } from "@/components/SetupChecklistBanner";
 import { ExceptionsPanel } from "@/components/ExceptionsPanel";

@@ -59,7 +59,7 @@ test.describe("@visual visual regression", () => {
   test("vehicles", async ({ page }, testInfo) => {
     await login(page);
     await page.goto("/vehicles");
-    await expect(page.getByRole("heading", { name: /vehicles/i }).first()).toBeVisible();
+    await expect(page.getByTestId("vehicles-page")).toBeVisible();
     await settle(page);
     await expect(page).toHaveScreenshot(`vehicles-${testInfo.project.name}.png`, {
       ...SHOT,

@@ -38,15 +38,16 @@ test.describe("accessibility (axe, WCAG 2.2 AA)", () => {
 
   test("dashboard has no critical/serious violations", async ({ page }) => {
     await login(page);
-    await expect(page.getByTestId("sidebar-org-name")).toBeVisible();
+    // dashboard-page is present on both desktop and the mobile drawer layout;
+    // the sidebar org name is hidden inside the mobile navigation Sheet.
+    await expect(page.getByTestId("dashboard-page")).toBeVisible();
     expect(await scan(page)).toEqual([]);
   });
 
-  test("vehicles grid has no critical/serious violations", async ({ page }, testInfo) => {
+  test("vehicles grid has no critical/serious violations", async ({ page }) => {
     await login(page);
     await page.goto("/vehicles");
-    // The grid renders its heading once the first page loads.
-    await expect(page.getByRole("heading", { name: /vehicles/i }).first()).toBeVisible();
+    await expect(page.getByTestId("vehicles-page")).toBeVisible();
     expect(await scan(page)).toEqual([]);
   });
 });

@@ -10,8 +10,8 @@
 | 2 | UX-02 Forms, validation and action safety | `feature/ux-02-forms-action-safety` | Merged | #28 | `33a4b178a37f7273e1ba430f810a996887636fc4` |
 | 3 | UX-03 Search, filters, grids and exports | `feature/ux-03-search-grids-exports` | Merged | #29 | `288a1385b4d19949496ef1620be03edf73eeb62e` |
 | 4 | UX-04 Performance and scalability | `feature/ux-04-performance-scalability` | Merged | #30 | `250f05d2a4e0251fcc934d1a3083cfa469c22d73` |
-| 5 | UX-R1 Recovery, audit and verification | `feature/ux-r1-recovery-verification` | In progress | — | — |
-| 6 | UX-05 Mobile usability and accessibility | `feature/ux-05-mobile-accessibility` | Not started | — | — |
+| 5 | UX-R1 Recovery, audit and verification | `feature/ux-r1-recovery-verification` | Merged | #31 | `3508a28b32737300a728f41a8019d7df8e199214` |
+| 6 | UX-05 Mobile usability and accessibility | `feature/ux-05-mobile-accessibility` | In progress | — | — |
 | 7 | UX-CLOSEOUT Release gate | `feature/ux-closeout-release-gate` | Not started | — | — |
 
 Status is updated only with verified PR and merge evidence. Original Phase 4 has
