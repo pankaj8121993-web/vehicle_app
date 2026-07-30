@@ -54,7 +54,7 @@ export default function Login() {
               approvals and reporting — one intelligent platform for your entire fleet.
             </p>
           </div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">© 2026 FleetFlow · Complete Fleet Operations Management</p>
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400">© 2026 FleetFlow · Complete Fleet Operations Management</p>
         </aside>
 
         <main className="flex items-center justify-center p-6 sm:p-12">
@@ -86,7 +86,7 @@ export default function Login() {
                     className="rounded-none pr-10"
                   />
                   <button type="button" data-testid="login-toggle-password" onClick={() => setShowPw(!showPw)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700" aria-label="Toggle password visibility">
+                    className="absolute right-1.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center text-slate-500 hover:text-slate-700" aria-label="Toggle password visibility">
                     {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
@@ -115,8 +115,8 @@ export default function Login() {
                 <PlayCircle className="h-4 w-4" /> Want a look around first?{" "}
                 <Link to="/demo" data-testid="login-demo-link" className="font-semibold text-slate-900 underline underline-offset-4 hover:text-amber-600">Try the demo</Link>
               </p>
-              <p className="text-xs text-slate-400">Forgot your password? Ask your organisation admin to reset it.</p>
-              <Link to="/" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-700" data-testid="login-home-link">
+              <p className="text-xs text-slate-600">Forgot your password? Ask your organisation admin to reset it.</p>
+              <Link to="/" className="inline-flex min-h-6 items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800" data-testid="login-home-link">
                 <ArrowLeft className="h-3.5 w-3.5" /> Back to fleetflow home
               </Link>
             </div>

@@ -23,7 +23,7 @@ export default function Vehicles() {
         <Label htmlFor="include-disposed" className="cursor-pointer text-xs font-bold uppercase tracking-[0.08em] text-slate-600">
           Include Sold / Scrapped
         </Label>
-        <p className="ml-auto text-xs text-slate-400">By default, disposed vehicles are hidden everywhere.</p>
+        <p className="ml-auto text-xs text-slate-600">By default, disposed vehicles are hidden everywhere.</p>
       </div>
       <CrudModule
         {...vehicleConfig}

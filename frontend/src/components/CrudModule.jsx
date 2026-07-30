@@ -367,7 +367,7 @@ export const CrudModule = ({
             {loading ? (
               <tr><td colSpan={columns.length + 1} className="px-3 py-10 text-center text-slate-400"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></td></tr>
             ) : items.length === 0 ? (
-              <tr><td colSpan={columns.length + 1} className="px-3 py-10 text-center text-sm text-slate-400" data-testid={`${prefix}-empty-state`}>
+              <tr><td colSpan={columns.length + 1} className="px-3 py-10 text-center text-sm text-slate-600" data-testid={`${prefix}-empty-state`}>
                 {debouncedSearch ? `No ${title.toLowerCase()} match “${debouncedSearch}”.` : emptyText || `No ${title.toLowerCase()} records yet.`}
               </td></tr>
             ) : (

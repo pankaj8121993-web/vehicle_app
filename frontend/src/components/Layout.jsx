@@ -88,7 +88,7 @@ const SidebarContent = ({ onNavigate, role, orgName, modules }) => {
           </span>
           <div>
             <p className="font-heading text-lg font-black leading-none tracking-tighter text-white">FleetFlow</p>
-            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">Fleet Operations</p>
+            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-300">Fleet Operations</p>
           </div>
         </div>
         {orgName && (
@@ -98,7 +98,7 @@ const SidebarContent = ({ onNavigate, role, orgName, modules }) => {
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         {nav.map((g) => (
           <div key={g.group} className="mb-5">
-            <p className="mb-1.5 px-2 text-[10px] font-bold tracking-[0.18em] text-slate-600">{g.group}</p>
+            <p className="mb-1.5 px-2 text-[10px] font-bold tracking-[0.18em] text-slate-300">{g.group}</p>
             {g.items.map((item) => (
               <NavLink
                 key={item.to}
@@ -168,7 +168,7 @@ export const Layout = ({ children }) => {
           <div className="flex items-center gap-3">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="sm" className="lg:hidden" data-testid="mobile-menu-btn">
+                <Button variant="ghost" size="sm" className="lg:hidden" data-testid="mobile-menu-btn" aria-label="Open navigation menu">
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
