@@ -133,3 +133,9 @@ frontend/node_modules/.cache/default-development/2.pack
 frontend/e2e/.role-matrix-state.json
 frontend/playwright-report/
 frontend/test-results/
+
+# Lighthouse full per-page reports (large); summaries are committed
+test_reports/lighthouse/*.desktop.json
+test_reports/lighthouse/*.mobile.json
+test_reports/lighthouse-apponly/
+scripts/node_modules

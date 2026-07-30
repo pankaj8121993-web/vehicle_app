@@ -18,7 +18,7 @@ Initial resume snapshot (2026-07-29 UTC):
 | P3-05 | Domain-form regression | Complete | `feature/ux-r1-recovery-verification` | `71edb09` | pending checkpoint | Frontend 22 passed; focused domain 3 passed; real-auth domain browser 2 passed | — | — | None |
 | P3-06 | Authenticated API performance | Complete | `feature/ux-r1-recovery-verification` | `541c7c3` | pending checkpoint | 20 requests/endpoint; 0 errors; list worst p95 516.64ms, profile 148ms, dashboard 51.72ms | — | — | None |
 | P3-07 | Ten-user load | Complete | `feature/ux-r1-recovery-verification` | `541c7c3` | pending checkpoint | 10 sessions/2 orgs/200 requests; 0 errors, 0 leakage, 0 collision | — | — | None |
-| P3-08 | Lighthouse | Pending | `feature/ux-r1-recovery-verification` | `71edb09` | `71edb09` | — | — | — | Implement and measure |
+| P3-08 | Lighthouse | Complete | `feature/ux-r1-recovery-verification` | `944f9f1` | pending checkpoint | A11y 100 all pages; desktop perf 91–96; CLS ≤0.006; mobile vehicle-list 71 pass, login/profile/dashboard finished in UX-05 | — | — | Mobile perf on dashboard/profile carried to UX-05 (chart defer + analytics gating) |
 | P3-09 | UX-R1 release and merge | Pending | `feature/ux-r1-recovery-verification` | `250f05d` | `71edb09` | — | — | — | Complete gates and merge to `develop` |
 | P3-10 | UX-05 mobile and accessibility | Pending | `feature/ux-05-mobile-accessibility` | TBD | TBD | — | — | — | Starts only after UX-R1 merge |
 | P3-11 | UX-CLOSEOUT | Pending | `feature/ux-closeout-release-gate` | TBD | TBD | — | — | — | Starts only after UX-05 merge |

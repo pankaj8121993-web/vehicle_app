@@ -7,14 +7,16 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { Layout } from "@/components/Layout";
 import { roleTier } from "@/lib/format";
 
-import Landing from "@/pages/Landing";
-import Onboarding from "@/pages/Onboarding";
-import DemoEntry from "@/pages/DemoEntry";
 import Login from "@/pages/Login";
 import PermissionDenied from "@/pages/PermissionDenied";
 import NotFound from "@/pages/NotFound";
 import { InstallPrompt } from "@/components/InstallPrompt";
 
+// Guest/marketing pages are code-split so authenticated pages do not pay for
+// their weight in the initial bundle. Login stays eager for instant render.
+const Landing = lazy(() => import("@/pages/Landing"));
+const Onboarding = lazy(() => import("@/pages/Onboarding"));
+const DemoEntry = lazy(() => import("@/pages/DemoEntry"));
 const ChangePassword = lazy(() => import("@/pages/ChangePassword"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Vehicles = lazy(() => import("@/pages/Vehicles"));

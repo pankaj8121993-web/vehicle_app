@@ -87,4 +87,4 @@ all `/auth/me` identities remained distinct: zero leakage and zero collision.
 | Vehicle-profile critical API p95 ≤ 1,000 ms | PASS (148.00 ms) |
 | Dashboard critical API p95 ≤ 1,500 ms | PASS (51.72 ms) |
 | Authenticated 10-user error rate | PASS (0/200) |
-| Lighthouse accessibility/performance/CLS | Not measured |
+| Lighthouse accessibility/performance/CLS | Measured — see [LIGHTHOUSE_EVIDENCE.md](LIGHTHOUSE_EVIDENCE.md). Accessibility 100 (all pages), desktop perf 91–96, CLS ≤ 0.006 (representative config): PASS. Mobile perf partial (vehicle list 71 pass; login/vehicle-profile/dashboard completed in UX-05). |
