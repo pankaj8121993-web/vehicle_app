@@ -18,6 +18,13 @@ COMPRESSIBLE = {".js", ".css", ".html", ".json", ".svg", ".txt", ".map", ".xml",
 
 
 class SPAHandler(http.server.SimpleHTTPRequestHandler):
+    # Keep-alive so a browser reuses one connection for the many hashed chunk
+    # requests instead of opening (and sometimes resetting) a fresh connection
+    # each time — Firefox in particular reports those resets as ChunkLoadError.
+    # Every response below sets an explicit Content-Length, which HTTP/1.1
+    # keep-alive requires.
+    protocol_version = "HTTP/1.1"
+
     def send_head(self):
         raw = self.path.split("?", 1)[0]
         path = Path(self.translate_path(raw))

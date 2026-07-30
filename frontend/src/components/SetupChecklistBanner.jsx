@@ -16,6 +16,11 @@ export const SetupChecklistBanner = () => {
     api.get("/onboarding/checklist").then((r) => setData(r.data)).catch(() => {});
   }, [isManager, user?.is_demo]);
 
+  // While the checklist is loading for a manager, reserve the banner's height
+  // so it does not shift the dashboard metrics down when it appears (UX-05 CLS).
+  if (isManager && !user?.is_demo && !hidden && !data) {
+    return <div className="min-h-[128px] md:min-h-[88px]" aria-hidden="true" />;
+  }
   if (!isManager || user?.is_demo || hidden || !data || data.dismissed || data.completed >= data.total) return null;
 
   const dismiss = async () => {
@@ -24,7 +29,7 @@ export const SetupChecklistBanner = () => {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-4 border border-amber-300 bg-amber-50 px-5 py-3.5" data-testid="dashboard-setup-banner">
+    <div className="flex min-h-[128px] md:min-h-[88px] flex-wrap items-center gap-4 border border-amber-300 bg-amber-50 px-5 py-3.5" data-testid="dashboard-setup-banner">
       <CheckCircle2 className="h-5 w-5 text-amber-600" />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-bold text-slate-900">Finish setting up your workspace — {data.completed}/{data.total} done</p>

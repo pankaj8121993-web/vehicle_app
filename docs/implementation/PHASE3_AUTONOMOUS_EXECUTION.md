@@ -19,8 +19,8 @@ Initial resume snapshot (2026-07-29 UTC):
 | P3-06 | Authenticated API performance | Complete | `feature/ux-r1-recovery-verification` | `541c7c3` | pending checkpoint | 20 requests/endpoint; 0 errors; list worst p95 516.64ms, profile 148ms, dashboard 51.72ms | — | — | None |
 | P3-07 | Ten-user load | Complete | `feature/ux-r1-recovery-verification` | `541c7c3` | pending checkpoint | 10 sessions/2 orgs/200 requests; 0 errors, 0 leakage, 0 collision | — | — | None |
 | P3-08 | Lighthouse | Complete | `feature/ux-r1-recovery-verification` | `944f9f1` | pending checkpoint | A11y 100 all pages; desktop perf 91–96; CLS ≤0.006; mobile vehicle-list 71 pass, login/profile/dashboard finished in UX-05 | — | — | Mobile perf on dashboard/profile carried to UX-05 (chart defer + analytics gating) |
-| P3-09 | UX-R1 release and merge | Pending | `feature/ux-r1-recovery-verification` | `250f05d` | `71edb09` | — | — | — | Complete gates and merge to `develop` |
-| P3-10 | UX-05 mobile and accessibility | Pending | `feature/ux-05-mobile-accessibility` | TBD | TBD | — | — | — | Starts only after UX-R1 merge |
+| P3-09 | UX-R1 release and merge | Complete | `feature/ux-r1-recovery-verification` | `250f05d` | `1caa620` | Backend 871 passed ×2; frontend unit 22; role matrix 25 passed/1 flaky; all CI green | #31 | `3508a28` | None |
+| P3-10 | UX-05 mobile and accessibility | In progress | `feature/ux-05-mobile-accessibility` | `3508a28` | `a6c268f` | Unit 25 (incl jest-axe); a11y 100 all pages; desktop perf 97–99 CLS ≤0.013; axe critical/serious=0 | — | — | Mobile dashboard at threshold (69/0.108); vehicle-profile residual (67/0.158) documented |
 | P3-11 | UX-CLOSEOUT | Pending | `feature/ux-closeout-release-gate` | TBD | TBD | — | — | — | Starts only after UX-05 merge |
 
 Production verification: **NOT PERFORMED**

@@ -65,7 +65,9 @@
     "build": "craco build",
     "test": "craco test",
     "test:ci": "craco test --watchAll=false",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test --grep-invert @visual",
+    "test:visual": "playwright test --grep @visual",
+    "test:visual:update": "playwright test --grep @visual --update-snapshots"
   },
   "browserslist": {
     "production": [
@@ -80,6 +82,7 @@
     ]
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.1",
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
     "@craco/craco": "7.1.0",
     "@emergentbase/visual-edits": "https://assets.emergent.sh/npm/emergentbase-visual-edits-1.0.8.tgz",
@@ -99,6 +102,7 @@
     "eslint-plugin-react": "7.37.4",
     "eslint-plugin-react-hooks": "5.2.0",
     "globals": "15.15.0",
+    "jest-axe": "8.0.0",
     "postcss": "8.4.49",
     "tailwindcss": "3.4.17"
   },

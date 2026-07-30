@@ -58,7 +58,7 @@ export default function VehicleProfile() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) return <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
+  if (loading) return <div className="flex min-h-[80vh] items-start justify-center pt-32" role="status" aria-live="polite" aria-label="Loading vehicle profile"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>;
   if (!summary) return <p className="text-slate-500">Vehicle not found.</p>;
 
   const v = summary.vehicle;

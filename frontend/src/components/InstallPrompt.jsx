@@ -44,7 +44,7 @@ export const InstallPrompt = () => {
           <p className="font-heading text-sm font-bold text-slate-900">Install FleetFlow</p>
           <p className="mt-1 text-xs text-slate-500">Add to home screen for quick access.</p>
         </div>
-        <button onClick={dismiss} className="p-1 text-slate-400 hover:text-slate-700" data-testid="pwa-install-dismiss">
+        <button onClick={dismiss} aria-label="Dismiss install prompt" className="grid h-7 w-7 place-items-center text-slate-500 hover:text-slate-700" data-testid="pwa-install-dismiss">
           <X className="h-4 w-4" />
         </button>
       </div>

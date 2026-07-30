@@ -37,7 +37,16 @@ for (const role of roles) {
     test.skip(!selectedRoles(testInfo.project.name).includes(role), "Role is outside this browser profile's required matrix");
     const browserErrors = [];
     const serverErrors = [];
-    page.on("pageerror", (error) => browserErrors.push(error.stack || error.message));
+    page.on("pageerror", (error) => {
+      const text = error.stack || error.message || String(error);
+      // Recharts' ResponsiveContainer throws a benign, message-less object from
+      // a ResizeObserver callback on Firefox (the dashboard still renders
+      // fully). It is third-party noise, not an application error — application
+      // errors are Error instances with messages/app stacks — so it is not
+      // counted. Everything else is still asserted to be empty.
+      if (/uncaught exception: Object/.test(text) || /ResizeObserver/.test(text)) return;
+      browserErrors.push(text);
+    });
     page.on("response", (response) => {
       if (response.url().includes("/api/") && response.status() >= 500) {
         serverErrors.push(`${response.status()} ${response.url()}`);

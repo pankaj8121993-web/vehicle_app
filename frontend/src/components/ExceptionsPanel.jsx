@@ -42,10 +42,14 @@ export function ExceptionsPanel() {
     }
   };
 
-  if (!feed) return null;
+  // Reserve the panel's space while its feed loads so it does not push the
+  // dashboard metrics below it down when it resolves (UX-05 CLS fix).
+  if (!feed) {
+    return <div className="min-h-[132px] border border-slate-200 bg-white p-4" data-testid="exceptions-panel" aria-busy="true" />;
+  }
   if (!feed.items.length) {
     return (
-      <div className="border border-slate-200 bg-white p-4" data-testid="exceptions-panel">
+      <div className="min-h-[132px] border border-slate-200 bg-white p-4" data-testid="exceptions-panel">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
           <AlertTriangle className="h-4 w-4 text-emerald-600" /> Operational Exceptions
         </div>
@@ -54,7 +58,7 @@ export function ExceptionsPanel() {
     );
   }
   return (
-    <div className="border border-slate-200 bg-white" data-testid="exceptions-panel">
+    <div className="min-h-[132px] border border-slate-200 bg-white" data-testid="exceptions-panel">
       <div className="flex items-center justify-between border-b border-slate-100 p-4">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
           <AlertTriangle className="h-4 w-4 text-amber-600" /> Operational Exceptions
@@ -67,7 +71,7 @@ export function ExceptionsPanel() {
           <div key={it.id} className="flex items-center justify-between px-4 py-2 text-sm" data-testid={`exception-${it.id}`}>
             <div>
               <span className={`font-medium ${sevCls(it.severity)}`}>{it.label}</span>
-              <span className="ml-2 text-xs text-slate-400">{CATEGORY_LABEL[it.category] || it.category}</span>
+              <span className="ml-2 text-xs text-slate-600">{CATEGORY_LABEL[it.category] || it.category}</span>
             </div>
             {it.acknowledged
               ? <span className="text-xs text-slate-400">Acknowledged</span>

@@ -1,8 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import api from "@/lib/api";
+import { lazyWithRetry } from "@/lib/lazyWithRetry";
 import { fmtINR, fmtNum, fmtDate } from "@/lib/format";
 import { Loader2, Truck, Route, Hammer, PauseCircle, ShieldAlert, Fuel, Wrench, IndianRupee, AlertTriangle, TrendingUp } from "lucide-react";
-import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
+// Recharts is code-split into its own chunk so it stays off the dashboard's
+// critical render path; the text metrics paint first.
+const DashboardTrends = lazy(lazyWithRetry(() => import("@/components/DashboardTrends")));
 import { DrillDownDialog } from "@/components/DrillDownDialog";
 import { SetupChecklistBanner } from "@/components/SetupChecklistBanner";
 import { ExceptionsPanel } from "@/components/ExceptionsPanel";
@@ -35,7 +38,7 @@ const Metric = ({ label, value, icon: Icon, tone = "default", testId, onClick })
       onKeyDown={clickable ? (e) => { if (e.key === "Enter") onClick(); } : undefined}
     >
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">{label}</p>
         {Icon && <Icon className="h-4 w-4 text-slate-400" strokeWidth={2} />}
       </div>
       <p className="mt-2 font-mono text-2xl font-bold text-slate-900">{value ?? "—"}</p>
@@ -56,7 +59,7 @@ const ListCard = ({ title, items, render, emptyText, testId, onItemClick }) => (
         >
           {render(it)}
         </div>
-      )) : <p className="px-5 py-6 text-center text-sm text-slate-400">{emptyText || "No data yet"}</p>}
+      )) : <p className="px-5 py-6 text-center text-sm text-slate-600">{emptyText || "No data yet"}</p>}
     </div>
   </div>
 );
@@ -78,7 +81,7 @@ export default function Dashboard() {
   }, []);
 
   if (loading) {
-    return <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
+    return <div className="flex min-h-[1400px] items-start justify-center pt-32" role="status" aria-live="polite" aria-label="Loading dashboard"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>;
   }
   if (!data) return <p className="text-slate-500">Could not load dashboard.</p>;
 
@@ -285,34 +288,14 @@ export default function Dashboard() {
           {trends.some((t) => t.expense || t.km || t.fuel_cost) && (
             <div>
               <h2 className="mb-3 flex items-center gap-2 text-base font-bold uppercase tracking-tight text-slate-800"><TrendingUp className="h-4 w-4" /> 6-Month Trends</h2>
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="border border-slate-200 bg-white p-4" data-testid="trend-cost-chart">
-                  <p className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-slate-500">Monthly Cost (₹)</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={trends}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(v) => fmtINR(v)} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="expense" name="Total Cost" fill="#0f172a" />
-                      <Bar dataKey="fuel_cost" name="Fuel Cost" fill="#2563eb" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="border border-slate-200 bg-white p-4" data-testid="trend-km-chart">
-                  <p className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-slate-500">KM Run Per Month</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={trends}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(v) => `${fmtNum(v)} KM`} />
-                      <Line type="monotone" dataKey="km" name="KM Run" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+              {/* Height reserved (chart card is ~272px tall) so the lazy charts
+                  do not shift the layout when they stream in. */}
+              {/* Reserve the exact chart height so the lazy charts do not
+                  shift content. On mobile the two cards stack (~584px); from md
+                  they sit side by side (~280px). */}
+              <Suspense fallback={<div className="min-h-[584px] md:min-h-[280px]" aria-hidden="true" />}>
+                <DashboardTrends trends={trends} />
+              </Suspense>
             </div>
           )}
 
@@ -339,7 +322,7 @@ export default function Dashboard() {
             <AlertTriangle className="h-4 w-4 text-amber-600" /> Alerts Panel ({alerts.length})
           </p>
           <div className="max-h-[640px] divide-y divide-slate-100 overflow-y-auto">
-            {alerts.length === 0 && <p className="px-5 py-8 text-center text-sm text-slate-400">All clear. No alerts.</p>}
+            {alerts.length === 0 && <p className="px-5 py-8 text-center text-sm text-slate-600">All clear. No alerts.</p>}
             {alerts.map((a, i) => (
               <div key={i} className={`px-5 py-3 ${a.severity === "danger" ? "border-l-2 border-l-red-600" : "border-l-2 border-l-amber-500"}`} data-testid={`alert-item-${i}`}>
                 <p className="text-sm font-medium text-slate-800">{a.message}</p>
