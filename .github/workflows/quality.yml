@@ -50,7 +50,11 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium
+      # The role matrix runs three projects (desktop Chromium, exact 360x800
+      # mobile Chromium, and a representative Firefox subset), so both browser
+      # engines must be installed. Firefox tests retry (retries: 2) to absorb
+      # recharts' occasional benign ResizeObserver pageerror.
+      - run: npx playwright install --with-deps chromium firefox
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend
