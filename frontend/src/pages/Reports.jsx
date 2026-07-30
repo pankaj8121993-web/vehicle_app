@@ -117,6 +117,9 @@ export default function Reports() {
         <Button data-testid="report-print-btn" variant="outline" onClick={() => window.print()} disabled={!result} className="rounded-none border-slate-300 text-slate-700 hover:bg-slate-50">
           <Printer className="mr-2 h-4 w-4" /> Print
         </Button>
+        <p className="w-full text-xs text-slate-500" data-testid="export-row-limit">
+          Synchronous exports include up to 5,000 authorised rows matching the active report filters.
+        </p>
       </div>
 
       {result && (

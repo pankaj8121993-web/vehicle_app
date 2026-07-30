@@ -45,5 +45,6 @@ describe("form safety", () => {
 
   test("identifies destructive-action records", () => {
     expect(recordLabel({ vehicle_number: "MH12AB1234", id: "secret-id" })).toBe("MH12AB1234");
+    expect(recordLabel(null)).toBe("selected record");
   });
 });

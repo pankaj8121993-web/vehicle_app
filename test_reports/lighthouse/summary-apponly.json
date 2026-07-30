@@ -1,0 +1,98 @@
+[
+  {
+    "page": "login",
+    "form_factor": "desktop",
+    "url": "http://127.0.0.1:59463/login",
+    "performance": 99,
+    "accessibility": 100,
+    "best_practices": 96,
+    "cls": 0,
+    "lcp_ms": 937.3109750000001,
+    "fcp_ms": 421.63935,
+    "tbt_ms": 56
+  },
+  {
+    "page": "dashboard",
+    "form_factor": "desktop",
+    "url": "http://127.0.0.1:59463/dashboard",
+    "performance": 91,
+    "accessibility": 100,
+    "best_practices": 100,
+    "cls": 0.1323161879894669,
+    "lcp_ms": 1397.9769999999999,
+    "fcp_ms": 411.8866,
+    "tbt_ms": 43
+  },
+  {
+    "page": "vehicle_list",
+    "form_factor": "desktop",
+    "url": "http://127.0.0.1:59463/vehicles",
+    "performance": 98,
+    "accessibility": 100,
+    "best_practices": 100,
+    "cls": 0.0032990037706163203,
+    "lcp_ms": 1138.86775,
+    "fcp_ms": 433.85325,
+    "tbt_ms": 0
+  },
+  {
+    "page": "vehicle_profile",
+    "form_factor": "desktop",
+    "url": "http://127.0.0.1:59463/vehicles/6625471d321d-vehicle",
+    "performance": 97,
+    "accessibility": 100,
+    "best_practices": 100,
+    "cls": 0.00003197622626243141,
+    "lcp_ms": 1229.3329749999998,
+    "fcp_ms": 415.8164500000001,
+    "tbt_ms": 0
+  },
+  {
+    "page": "login",
+    "form_factor": "mobile",
+    "url": "http://127.0.0.1:59463/login",
+    "performance": 89,
+    "accessibility": 100,
+    "best_practices": 96,
+    "cls": 0,
+    "lcp_ms": 3617.8138,
+    "fcp_ms": 1514.0630499999997,
+    "tbt_ms": 67
+  },
+  {
+    "page": "dashboard",
+    "form_factor": "mobile",
+    "url": "http://127.0.0.1:59463/dashboard",
+    "performance": 47,
+    "accessibility": 100,
+    "best_practices": 100,
+    "cls": 0.4082119444444445,
+    "lcp_ms": 5598.563000000002,
+    "fcp_ms": 1514.8113999999998,
+    "tbt_ms": 501.5617000000002
+  },
+  {
+    "page": "vehicle_list",
+    "form_factor": "mobile",
+    "url": "http://127.0.0.1:59463/vehicles",
+    "performance": 81,
+    "accessibility": 100,
+    "best_practices": 100,
+    "cls": 0.005933050401475695,
+    "lcp_ms": 4399.00245,
+    "fcp_ms": 1512.65375,
+    "tbt_ms": 197
+  },
+  {
+    "page": "vehicle_profile",
+    "form_factor": "mobile",
+    "url": "http://127.0.0.1:59463/vehicles/6625471d321d-vehicle",
+    "performance": 68,
+    "accessibility": 100,
+    "best_practices": 100,
+    "cls": 0.1575,
+    "lcp_ms": 5581.7245,
+    "fcp_ms": 1516.8392500000002,
+    "tbt_ms": 246.50000000000045
+  }
+]

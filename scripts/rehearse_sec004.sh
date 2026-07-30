@@ -31,7 +31,24 @@ if [ "$#" -gt 0 ]; then
   exit 2
 fi
 
-PY="${REHEARSAL_PYTHON:-/root/.venv/bin/python}"
+# Choose a Python interpreter that has the backend dependencies. Honour an
+# explicit REHEARSAL_PYTHON, otherwise fall through the known dev-container
+# venvs and finally PATH, so the harness runs both in the dev container and in
+# CI (where dependencies are installed into the runner's own python). The
+# previous hardcoded /root/.venv/bin/python failed in CI with "Permission
+# denied" (exit 126) because that path does not exist there.
+if [ -n "${REHEARSAL_PYTHON:-}" ]; then
+  PY="$REHEARSAL_PYTHON"
+else
+  PY=""
+  for cand in /root/.venv/bin/python /app/.venv/bin/python python3 python; do
+    if command -v "$cand" >/dev/null 2>&1; then PY="$cand"; break; fi
+  done
+  if [ -z "$PY" ]; then
+    echo "ERROR: no Python interpreter found for the rehearsal harness." >&2
+    exit 3
+  fi
+fi
 MONGO_URL="${MONGO_URL:-mongodb://localhost:27017}"
 
 # --- Refuse production-like / unsafe targets ---------------------------------

@@ -47,6 +47,8 @@ not accepted.
 - Search is debounced by 300 ms and sent to the server; it no longer filters
   only the current 25-row page.
 - A new search resets to page one and stale debounce timers are cancelled.
+- A monotonically increasing request sequence prevents a slower, older search
+  or page request from overwriting the newest result.
 - Sorting is sent to the server and exposed with `aria-sort` and a visible
   direction indicator.
 - Result ranges use the server total; page boundaries and page size are explicit.
@@ -65,9 +67,21 @@ introduced.
 
 ## Evidence
 
-Pure backend contract tests cover regex escaping, filter preservation, invalid
-pagination, page boundaries, total pages, and sort allowlisting. Frontend unit,
-build, and Playwright regression commands are rerun. Full database-backed suite
-execution remains subject to the repository requirements resolver limitation
-recorded in the baseline.
+`test_endpoint_query_matrix.py` exercises real HTTP and the disposable MongoDB
+for vehicles, drivers, trips, expenses, fuel, FASTag, repairs, tyres, downtime,
+accidents/claims, documents, vendors, and derived exceptions. It verifies
+tenant and permission boundaries, pages 1/2/last/empty, size limits, invalid
+input, totals, both sort directions, unsupported sorts, status/date/domain
+filters, combined search/filter, and empty results. Each register has 23
+authorised rows plus foreign-tenant rows; the unique search target is naturally
+beyond page one under its default ordering and is returned directly by the
+server search.
 
+Execution on 2026-07-28: `25 passed` in 2.33 seconds. Focused frontend grid
+tests: `2 passed`, covering debounce, stale-response suppression, search
+clearing, no-results copy, and preservation of active filters while sorting.
+
+The `all=true` audit found only bounded selector/reference uses: vehicle,
+driver, tyre and vendor form selectors, repair-vendor selection, report
+selectors, and operational assignment pickers. No operational grid uses
+`all=true`.

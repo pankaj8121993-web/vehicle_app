@@ -1,4 +1,5 @@
 import io
+import re
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Response
 from database import db
@@ -8,6 +9,18 @@ from helpers import gather_expenses, get_lookup_maps
 router = APIRouter(tags=["analytics"])
 
 DISPOSED_STATUSES = ["sold", "scrapped"]
+EXPORT_ROW_LIMIT = 5000
+
+
+def _safe_excel_cell(value):
+    """Prevent spreadsheet formula execution from exported user-entered text."""
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return "" if value is None else value
+
+
+def _safe_sheet_title(value):
+    return re.sub(r"[\[\]:*?/\\]", "-", value)[:30] or "FleetFlow Report"
 
 
 def today_str():
@@ -463,13 +476,13 @@ async def export_report(key: str, format: str = "excel", vehicle_id: str = None,
         from openpyxl.styles import Font, PatternFill
         wb = Workbook()
         ws = wb.active
-        ws.title = name[:30]
+        ws.title = _safe_sheet_title(name)
         ws.append(cols)
         for cell in ws[1]:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
         for r in rows:
-            ws.append([("" if c is None else c) for c in r])
+            ws.append([_safe_excel_cell(c) for c in r])
         for i, col in enumerate(cols, 1):
             ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = max(len(str(col)) + 4, 14)
         buf = io.BytesIO()
@@ -477,7 +490,12 @@ async def export_report(key: str, format: str = "excel", vehicle_id: str = None,
         return Response(
             content=buf.getvalue(),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{key}_report.xlsx"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{key}_report.xlsx"',
+                "X-Export-Row-Limit": str(EXPORT_ROW_LIMIT),
+                "X-Export-Truncated": str(len(rows) >= EXPORT_ROW_LIMIT).lower(),
+                "X-Export-Row-Count": str(len(rows)),
+            },
         )
 
     if format == "pdf":
@@ -489,7 +507,7 @@ async def export_report(key: str, format: str = "excel", vehicle_id: str = None,
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=10 * mm, rightMargin=10 * mm, topMargin=12 * mm)
         styles = getSampleStyleSheet()
-        elems = [Paragraph(f"Rajguru Foods — {name}", styles["Title"]),
+        elems = [Paragraph(f"FleetFlow — {name}", styles["Title"]),
                  Paragraph(f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y')}", styles["Normal"]),
                  Spacer(1, 8)]
         # PDF font lacks ₹ glyph; use Rs.
@@ -509,7 +527,12 @@ async def export_report(key: str, format: str = "excel", vehicle_id: str = None,
         return Response(
             content=buf.getvalue(),
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{key}_report.pdf"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{key}_report.pdf"',
+                "X-Export-Row-Limit": str(EXPORT_ROW_LIMIT),
+                "X-Export-Truncated": str(len(rows) >= EXPORT_ROW_LIMIT).lower(),
+                "X-Export-Row-Count": str(len(rows)),
+            },
         )
 
     raise HTTPException(status_code=400, detail="format must be excel or pdf")

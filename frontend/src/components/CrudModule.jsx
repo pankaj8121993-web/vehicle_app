@@ -170,6 +170,7 @@ export const CrudModule = ({
   const [pageSize, setPageSize] = useState(25);
   const [sortBy, setSortBy] = useState("");
   const [sortDir, setSortDir] = useState("asc");
+  const requestSequence = useRef(0);
 
   const { user } = useAuth();
   const role = user?.role;
@@ -180,6 +181,7 @@ export const CrudModule = ({
   useUnsavedChanges(isDirty && !saving);
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     try {
       const res = await api.get(`/${endpoint}`, { params: {
@@ -187,6 +189,7 @@ export const CrudModule = ({
         search: debouncedSearch || undefined,
         sort_by: sortBy || undefined, sort_dir: sortBy ? sortDir : undefined,
       } });
+      if (requestId !== requestSequence.current) return;
       if (Array.isArray(res.data)) {
         setItems(res.data);
         setTotal(res.data.length);
@@ -195,9 +198,9 @@ export const CrudModule = ({
         setTotal(res.data.total);
       }
     } catch (err) {
-      toast.error(`Failed to load ${title}`);
+      if (requestId === requestSequence.current) toast.error(`Failed to load ${title}`);
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, [endpoint, fixedJson, title, page, pageSize, debouncedSearch, sortBy, sortDir]);
 

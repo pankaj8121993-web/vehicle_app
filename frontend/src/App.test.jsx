@@ -25,9 +25,10 @@ describe("route guards", () => {
     ["/get-started", "Get started page"],
     ["/demo", "Demo entry page"],
     ["/login", "Login page"],
-  ])("keeps public/guest route %s stable after anonymous hydration", (path, label) => {
+  ])("keeps public/guest route %s stable after anonymous hydration", async (path, label) => {
     renderRoute(path, { user: null, loading: false });
-    expect(screen.getByText(label)).toBeInTheDocument();
+    // Guest/marketing pages are code-split, so they resolve through Suspense.
+    expect(await screen.findByText(label)).toBeInTheDocument();
   });
 
   test("waits for authentication hydration without flashing a page", () => {

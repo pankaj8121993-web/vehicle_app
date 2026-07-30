@@ -46,6 +46,8 @@ export const explainApiError = (error, fallback = "The action could not be compl
   return fallback;
 };
 
-export const recordLabel = (record = {}) =>
-  record.vehicle_number || record.name || record.title || record.employee_number ||
-  record.doc_number || record.id || "selected record";
+export const recordLabel = (record = {}) => {
+  const value = record || {};
+  return value.vehicle_number || value.name || value.title || value.employee_number ||
+    value.doc_number || value.id || "selected record";
+};
