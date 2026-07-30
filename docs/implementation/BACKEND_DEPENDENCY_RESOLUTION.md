@@ -4,6 +4,14 @@
 **Python:** 3.11.15  
 **Production accessed:** No
 
+> **Update (UX-R1, P3-09):** `emergentintegrations` (and, transitively,
+> `litellm`) is **not imported by any backend module or test** — `import server`
+> succeeds without it. The pinned `emergentintegrations==0.2.0` is published only
+> on the hosting platform's private index, so public CI (PyPI-only) could not
+> resolve it and the backend job failed before collection. It has been removed
+> from `backend/requirements.txt`. The LiteLLM URL-fragment conflict described
+> below is therefore moot; the section is retained for history.
+
 ## Original conflict and graph
 
 `backend/requirements.txt` directly requested a hash-qualified LiteLLM wheel.
