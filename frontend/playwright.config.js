@@ -20,13 +20,13 @@ module.exports = defineConfig({
   },
   webServer: [
     {
-      command: "cd ../backend && APP_ENV=test FLEETFLOW_CROSS_SITE_COOKIES=false MONGO_URL=${FLEETFLOW_ROLE_E2E_MONGO_URL:-mongodb://127.0.0.1:27017} DB_NAME=fleetflow_role_e2e_${FLEETFLOW_ROLE_E2E_RUN_ID} CORS_ORIGINS=http://127.0.0.1:3101 ../.venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8101",
+      command: "cd ../backend && APP_ENV=test FLEETFLOW_CROSS_SITE_COOKIES=false MONGO_URL=${FLEETFLOW_ROLE_E2E_MONGO_URL:-mongodb://127.0.0.1:27017} DB_NAME=fleetflow_role_e2e_${FLEETFLOW_ROLE_E2E_RUN_ID} CORS_ORIGINS=http://127.0.0.1:3101 ${FLEETFLOW_ROLE_E2E_PYTHON:-../.venv/bin/python} -m uvicorn server:app --host 127.0.0.1 --port 8101",
       url: "http://127.0.0.1:8101/api/",
       reuseExistingServer: false,
       timeout: 120000,
     },
     {
-      command: "REACT_APP_BACKEND_URL=http://127.0.0.1:8101 npm run build && ../.venv/bin/python ../scripts/serve_spa.py build --port 3101",
+      command: "REACT_APP_BACKEND_URL=http://127.0.0.1:8101 npm run build && ${FLEETFLOW_ROLE_E2E_PYTHON:-../.venv/bin/python} ../scripts/serve_spa.py build --port 3101",
       url: "http://127.0.0.1:3101",
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
